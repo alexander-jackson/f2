@@ -14,11 +14,16 @@ async fn main() -> anyhow::Result<()> {
     setup();
 
     // Define some ports
-    let ports = vec![5000, 5001];
+    let container_count = 2;
+    let mut ports = Vec::new();
 
     // Start all the containers
-    for port in &ports {
-        docker::create_and_start("alexanderjackson/echo-server", "2046", *port as u32).await?;
+    for _ in 0..container_count {
+        let port =
+            docker::create_and_start_on_random_port("alexanderjackson/echo-server", "2046", 5000)
+                .await?;
+
+        ports.push(port);
     }
 
     let mut load_balancer = LoadBalancer::new(4999, ports);
