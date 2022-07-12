@@ -9,20 +9,35 @@ use hyper::{Body, Client, Error, Request, Response, Server, StatusCode};
 use rand::prelude::{SeedableRng, SliceRandom, SmallRng};
 
 #[derive(Clone, Debug)]
+pub struct Container {
+    image: String,
+    tag: String,
+    port: u16,
+}
+
+impl Container {
+    pub fn new(image: String, tag: String, port: u16) -> Self {
+        Self { image, tag, port }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct LoadBalancer {
     port: u16,
+    container: Container,
     downstreams: Arc<RwLock<Vec<u16>>>,
     client: Client<HttpConnector>,
     rng: SmallRng,
 }
 
 impl LoadBalancer {
-    pub fn new(port: u16, downstreams: Vec<u16>) -> Self {
+    pub fn new(port: u16, container: Container, downstreams: Vec<u16>) -> Self {
         let client = Client::new();
         let rng = SmallRng::from_entropy();
 
         Self {
             port,
+            container,
             downstreams: Arc::new(RwLock::new(downstreams)),
             client,
             rng,
@@ -45,10 +60,17 @@ impl LoadBalancer {
             drop(reader);
 
             let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
+            let container = self.container.clone();
 
             async move {
                 Ok::<_, Error>(service_fn(move |req| {
-                    handle_request(downstreams.clone(), downstream_addr, client.clone(), req)
+                    handle_request(
+                        downstreams.clone(),
+                        downstream_addr,
+                        container.clone(),
+                        client.clone(),
+                        req,
+                    )
                 }))
             }
         });
@@ -63,6 +85,7 @@ impl LoadBalancer {
 async fn handle_request(
     downstreams: Arc<RwLock<Vec<u16>>>,
     downstream_addr: SocketAddrV4,
+    container: Container,
     client: Client<HttpConnector>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
@@ -77,9 +100,9 @@ async fn handle_request(
 
         // Spawn the container
         let port = crate::docker::create_and_start_on_random_port(
-            "alexanderjackson/echo-server",
-            "2046",
-            5000,
+            &container.image,
+            &container.tag,
+            container.port as u32,
         )
         .await
         .expect("Failed to create a new container");
