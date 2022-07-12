@@ -13,9 +13,12 @@ pub async fn create_and_start(repository: &str, tag: &str, port: u32) -> Result<
         .build();
 
     let res = client.containers().create(&container_options).await?;
+    let container_id = res.id();
 
-    let container = Container::new(client, res.id());
+    let container = Container::new(client, container_id);
     container.start().await?;
+
+    tracing::info!(%container_id, %name, %port, "Created and started a container");
 
     Ok(())
 }
