@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0.58"
 docker-api = "0.9.1"
 hyper = { version = "0.14.20", features = ["client", "server", "tcp", "http1"] }
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter", "fmt"], default-features = false }

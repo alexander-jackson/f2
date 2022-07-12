@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         docker::create_and_start("alexanderjackson/echo-server", "2046", *port as u32).await?;
     }
 
-    let load_balancer = LoadBalancer::new(4999, ports);
+    let mut load_balancer = LoadBalancer::new(4999, ports);
     load_balancer.start().await?;
 
     Ok(())
