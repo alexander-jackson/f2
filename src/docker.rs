@@ -39,7 +39,7 @@ pub async fn create_and_start_on_random_port(
 fn find_binding(port: u32, mapping: Option<PortMap>) -> Option<u16> {
     mapping?
         .iter()
-        .filter(|(k, _)| k.split_once("/").unwrap().0.parse() == Ok(port))
+        .filter(|(k, _)| k.split_once('/').unwrap().0.parse() == Ok(port))
         .map(|(_, v)| {
             v.as_ref()
                 .unwrap()
