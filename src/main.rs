@@ -1,27 +1,33 @@
+use std::fs;
+
 use anyhow::Result;
 
+use crate::config::Config;
 use crate::load_balancing::{Container, LoadBalancer};
 
+mod config;
 mod docker;
 mod docker_registry;
 mod load_balancing;
 
 struct Args {
-    docker_hub_username: String,
-    image: String,
-    tag: String,
-    container_port: u16,
+    config: Option<String>,
 }
 
-fn parse_args() -> Result<Args> {
-    let mut args = pico_args::Arguments::from_env();
+impl Args {
+    fn parse() -> Result<Self> {
+        let mut args = pico_args::Arguments::from_env();
 
-    Ok(Args {
-        docker_hub_username: args.value_from_str("--docker-hub-username")?,
-        image: args.value_from_str("--image")?,
-        tag: args.value_from_str("--tag")?,
-        container_port: args.value_from_str("--port")?,
-    })
+        Ok(Self {
+            config: args.opt_value_from_str("--config")?,
+        })
+    }
+
+    fn get_config_path(&self) -> String {
+        self.config
+            .clone()
+            .unwrap_or_else(|| String::from("f2.toml"))
+    }
 }
 
 fn setup() {
@@ -39,7 +45,9 @@ fn setup() {
 async fn main() -> Result<()> {
     setup();
 
-    let args = parse_args()?;
+    let args = Args::parse()?;
+    let raw_config = fs::read_to_string(args.get_config_path())?;
+    let config: Config = toml::from_str(&raw_config)?;
 
     // Define some ports
     let container_count = 1;
@@ -47,20 +55,16 @@ async fn main() -> Result<()> {
 
     // Start all the containers
     for _ in 0..container_count {
-        let port = docker::create_and_start_on_random_port(
-            &args.image,
-            &args.tag,
-            args.container_port as u32,
-        )
-        .await?;
+        let port =
+            docker::create_and_start_on_random_port(&config.app, &config.tag, config.port as u32)
+                .await?;
 
         ports.push(port);
     }
 
-    let container = Container::new(args.image.clone(), args.tag.clone(), args.container_port);
+    let container = Container::new(config.app.clone(), config.tag.clone(), config.port);
 
-    let mut load_balancer =
-        LoadBalancer::new(4999, container, ports, args.docker_hub_username.clone());
+    let mut load_balancer = LoadBalancer::new(4999, container, ports, config.registry);
 
     load_balancer.start().await?;
 

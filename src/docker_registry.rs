@@ -3,13 +3,21 @@ use chrono::NaiveDateTime;
 use dkregistry::v2::Client;
 use futures::StreamExt;
 
+use crate::config::RegistryConfig;
+
 const DOCKER_HUB_REGISTRY: &str = "registry-1.docker.io";
 const TAG_FORMAT: &str = "%Y%m%d-%H%M";
 
 #[tracing::instrument]
-pub async fn check_for_newer_tag(repository: &str, current_tag: &str) -> Result<Option<String>> {
+pub async fn check_for_newer_tag(
+    app: &str,
+    current_tag: &str,
+    registry: &RegistryConfig,
+) -> Result<Option<String>> {
+    let repository = format!("{}/{}", registry.repository_account, app);
+
     // Fetch the tags
-    let tags = fetch_tags(repository).await?;
+    let tags = fetch_tags(&repository, registry).await?;
 
     tracing::debug!(count = %tags.len(), "Found some tags in the Docker registry");
 
@@ -17,11 +25,18 @@ pub async fn check_for_newer_tag(repository: &str, current_tag: &str) -> Result<
 }
 
 #[tracing::instrument]
-async fn fetch_tags(repository: &str) -> Result<Vec<String>> {
+async fn fetch_tags(repository: &str, registry: &RegistryConfig) -> Result<Vec<String>> {
     let scope = format!("repository:{}:pull", repository);
+    let endpoint = registry
+        .endpoint
+        .as_ref()
+        .map(String::as_str)
+        .unwrap_or(DOCKER_HUB_REGISTRY);
 
     let client = Client::configure()
-        .registry(DOCKER_HUB_REGISTRY)
+        .registry(endpoint)
+        .username(registry.username.clone())
+        .password(registry.password.clone())
         .build()?
         .authenticate(&[&scope])
         .await?;

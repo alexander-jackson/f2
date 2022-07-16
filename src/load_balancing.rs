@@ -8,6 +8,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Error, Request, Response, Server, StatusCode};
 use rand::prelude::{SeedableRng, SliceRandom, SmallRng};
 
+use crate::config::RegistryConfig;
 use crate::docker_registry;
 
 #[derive(Clone, Debug)]
@@ -30,7 +31,7 @@ pub struct LoadBalancer {
     downstreams: Arc<RwLock<Vec<u16>>>,
     client: Client<HttpConnector>,
     rng: SmallRng,
-    docker_hub_username: String,
+    registry: RegistryConfig,
 }
 
 impl LoadBalancer {
@@ -38,7 +39,7 @@ impl LoadBalancer {
         port: u16,
         container: Container,
         downstreams: Vec<u16>,
-        docker_hub_username: String,
+        registry: RegistryConfig,
     ) -> Self {
         let client = Client::new();
         let rng = SmallRng::from_entropy();
@@ -49,7 +50,7 @@ impl LoadBalancer {
             downstreams: Arc::new(RwLock::new(downstreams)),
             client,
             rng,
-            docker_hub_username,
+            registry,
         }
     }
 
@@ -58,7 +59,7 @@ impl LoadBalancer {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.port).into();
 
         let container = self.container.clone();
-        let docker_hub_username = self.docker_hub_username.clone();
+        let registry = self.registry.clone();
 
         let make_service = make_service_fn(move |_| {
             let client = self.client.clone();
@@ -89,7 +90,7 @@ impl LoadBalancer {
 
         // Spin up the auto-reloading functionality
         tokio::spawn(async move {
-            check_for_newer_images(container, docker_hub_username)
+            check_for_newer_images(container, registry)
                 .await
                 .expect("Failed to check for newer images");
         });
@@ -147,10 +148,10 @@ async fn handle_request(
 }
 
 #[tracing::instrument]
-async fn check_for_newer_images(container: Container, docker_hub_username: String) -> Result<()> {
+async fn check_for_newer_images(container: Container, registry: RegistryConfig) -> Result<()> {
     loop {
-        let repository = format!("{}/{}", docker_hub_username, container.image);
-        let tag = docker_registry::check_for_newer_tag(&repository, &container.tag).await?;
+        let tag = docker_registry::check_for_newer_tag(&container.image, &container.tag, &registry)
+            .await?;
 
         tracing::info!(?tag, "Checked the Docker registry for a newer tag");
 
