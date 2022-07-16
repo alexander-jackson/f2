@@ -21,17 +21,13 @@ pub async fn check_for_newer_tag(
 
     tracing::debug!(count = %tags.len(), "Found some tags in the Docker registry");
 
-    Ok(find_newer_tag(current_tag, &tags)?)
+    find_newer_tag(current_tag, &tags)
 }
 
 #[tracing::instrument]
 async fn fetch_tags(repository: &str, registry: &RegistryConfig) -> Result<Vec<String>> {
     let scope = format!("repository:{}:pull", repository);
-    let endpoint = registry
-        .endpoint
-        .as_ref()
-        .map(String::as_str)
-        .unwrap_or(DOCKER_HUB_REGISTRY);
+    let endpoint = registry.endpoint.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
 
     let client = Client::configure()
         .registry(endpoint)
@@ -59,7 +55,7 @@ fn find_newer_tag(current_tag: &str, tags: &[String]) -> Result<Option<String>> 
 
     // Find all the tags newer than this one
     let tag = tags
-        .into_iter()
+        .iter()
         .filter_map(|tag| {
             let parsed = NaiveDateTime::parse_from_str(tag, TAG_FORMAT).ok()?;
 
