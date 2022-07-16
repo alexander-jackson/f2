@@ -3,6 +3,7 @@ use docker_api::container::{ContainerCreateOpts, PublishPort};
 use docker_api::network::PortMap;
 use docker_api::{Container, Docker};
 
+#[tracing::instrument]
 pub async fn create_and_start_on_random_port(
     repository: &str,
     tag: &str,

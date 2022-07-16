@@ -7,10 +7,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.58"
+chrono = "0.4.19"
+dkregistry = { git = "https://github.com/camallo/dkregistry-rs" }
 docker-api = "0.9.1"
+futures = "0.3.21"
 hyper = { version = "0.14.20", features = ["client", "server", "tcp", "http1"] }
 pico-args = "0.5.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
-tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.20.0", features = ["macros", "rt-multi-thread", "time"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }

@@ -3,9 +3,11 @@ use anyhow::Result;
 use crate::load_balancing::{Container, LoadBalancer};
 
 mod docker;
+mod docker_registry;
 mod load_balancing;
 
 struct Args {
+    docker_hub_username: String,
     image: String,
     tag: String,
     container_port: u16,
@@ -15,6 +17,7 @@ fn parse_args() -> Result<Args> {
     let mut args = pico_args::Arguments::from_env();
 
     Ok(Args {
+        docker_hub_username: args.value_from_str("--docker-hub-username")?,
         image: args.value_from_str("--image")?,
         tag: args.value_from_str("--tag")?,
         container_port: args.value_from_str("--port")?,
@@ -39,7 +42,7 @@ async fn main() -> Result<()> {
     let args = parse_args()?;
 
     // Define some ports
-    let container_count = 2;
+    let container_count = 1;
     let mut ports = Vec::new();
 
     // Start all the containers
@@ -56,7 +59,9 @@ async fn main() -> Result<()> {
 
     let container = Container::new(args.image.clone(), args.tag.clone(), args.container_port);
 
-    let mut load_balancer = LoadBalancer::new(4999, container, ports);
+    let mut load_balancer =
+        LoadBalancer::new(4999, container, ports, args.docker_hub_username.clone());
+
     load_balancer.start().await?;
 
     Ok(())
