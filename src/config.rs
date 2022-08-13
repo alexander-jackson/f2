@@ -5,6 +5,7 @@ pub struct Config {
     pub app: String,
     pub tag: String,
     pub port: u16,
+    pub replicas: u32,
     pub registry: RegistryConfig,
 }
 

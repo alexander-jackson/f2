@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     let config: Config = toml::from_str(&raw_config)?;
 
     // Define some ports
-    let container_count = 1;
+    let container_count = config.replicas;
     let mut ports = Vec::new();
 
     // Start all the containers
