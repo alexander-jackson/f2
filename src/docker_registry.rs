@@ -3,21 +3,19 @@ use chrono::NaiveDateTime;
 use dkregistry::v2::Client;
 use futures::StreamExt;
 
-use crate::config::RegistryConfig;
+use crate::common::{Container, Registry};
 
 const DOCKER_HUB_REGISTRY: &str = "registry-1.docker.io";
 const TAG_FORMAT: &str = "%Y%m%d-%H%M";
 
 #[tracing::instrument]
 pub async fn check_for_newer_tag(
-    app: &str,
+    container: &Container,
+    registry: &Registry,
     current_tag: &str,
-    registry: &RegistryConfig,
 ) -> Result<Option<String>> {
-    let repository = format!("{}/{}", registry.repository_account, app);
-
     // Fetch the tags
-    let tags = fetch_tags(&repository, registry).await?;
+    let tags = fetch_tags(container, registry).await?;
 
     tracing::debug!(count = %tags.len(), "Found some tags in the Docker registry");
 
@@ -25,12 +23,12 @@ pub async fn check_for_newer_tag(
 }
 
 #[tracing::instrument]
-async fn fetch_tags(repository: &str, registry: &RegistryConfig) -> Result<Vec<String>> {
-    let scope = format!("repository:{}:pull", repository);
-    let endpoint = registry.endpoint.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
+async fn fetch_tags(container: &Container, registry: &Registry) -> Result<Vec<String>> {
+    let scope = format!("repository:{}:pull", container.image);
+    let base = registry.base.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
 
     let client = Client::configure()
-        .registry(endpoint)
+        .registry(base)
         .username(registry.username.clone())
         .password(registry.password.clone())
         .build()?
@@ -38,7 +36,7 @@ async fn fetch_tags(repository: &str, registry: &RegistryConfig) -> Result<Vec<S
         .await?;
 
     let tags = client
-        .get_tags(repository, None)
+        .get_tags(&container.image, None)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -69,6 +67,26 @@ fn find_newer_tag(current_tag: &str, tags: &[String]) -> Result<Option<String>> 
         .map(|e| e.0.clone());
 
     Ok(tag)
+}
+
+#[tracing::instrument]
+pub async fn fetch_latest_tag(
+    container: &Container,
+    registry: &Registry,
+) -> Result<Option<String>> {
+    let tags = fetch_tags(container, registry).await?;
+
+    let latest = tags
+        .iter()
+        .filter_map(|tag| {
+            NaiveDateTime::parse_from_str(tag, TAG_FORMAT)
+                .ok()
+                .map(|p| (tag, p))
+        })
+        .max_by_key(|e| e.1)
+        .map(|e| e.0.clone());
+
+    Ok(latest)
 }
 
 #[cfg(test)]

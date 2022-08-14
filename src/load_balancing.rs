@@ -5,41 +5,30 @@ use anyhow::Result;
 use hyper::client::HttpConnector;
 use hyper::http::uri::PathAndQuery;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Error, Request, Response, Server, StatusCode};
+use hyper::{Body, Client, Error, Request, Response, Server};
 use rand::prelude::{SeedableRng, SliceRandom, SmallRng};
 
-use crate::config::RegistryConfig;
-use crate::docker_registry;
-
-#[derive(Clone, Debug)]
-pub struct Container {
-    image: String,
-    tag: String,
-    port: u16,
-}
-
-impl Container {
-    pub fn new(image: String, tag: String, port: u16) -> Self {
-        Self { image, tag, port }
-    }
-}
+use crate::common::{Container, Registry};
+use crate::{docker, docker_registry};
 
 #[derive(Clone, Debug)]
 pub struct LoadBalancer {
     port: u16,
     container: Container,
+    registry: Registry,
     downstreams: Arc<RwLock<Vec<u16>>>,
     client: Client<HttpConnector>,
     rng: SmallRng,
-    registry: RegistryConfig,
+    current_tag: String,
 }
 
 impl LoadBalancer {
     pub fn new(
         port: u16,
         container: Container,
+        registry: Registry,
         downstreams: Vec<u16>,
-        registry: RegistryConfig,
+        current_tag: String,
     ) -> Self {
         let client = Client::new();
         let rng = SmallRng::from_entropy();
@@ -47,10 +36,11 @@ impl LoadBalancer {
         Self {
             port,
             container,
+            registry,
             downstreams: Arc::new(RwLock::new(downstreams)),
             client,
             rng,
-            registry,
+            current_tag,
         }
     }
 
@@ -60,6 +50,7 @@ impl LoadBalancer {
 
         let container = self.container.clone();
         let registry = self.registry.clone();
+        let current_tag = self.current_tag.clone();
 
         let make_service = make_service_fn(move |_| {
             let client = self.client.clone();
@@ -73,24 +64,17 @@ impl LoadBalancer {
             drop(reader);
 
             let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
-            let container = self.container.clone();
 
             async move {
                 Ok::<_, Error>(service_fn(move |req| {
-                    handle_request(
-                        downstreams.clone(),
-                        downstream_addr,
-                        container.clone(),
-                        client.clone(),
-                        req,
-                    )
+                    handle_request(downstream_addr, client.clone(), req)
                 }))
             }
         });
 
         // Spin up the auto-reloading functionality
         tokio::spawn(async move {
-            check_for_newer_images(container, registry)
+            check_for_newer_images(container, registry, current_tag)
                 .await
                 .expect("Failed to check for newer images");
         });
@@ -103,9 +87,7 @@ impl LoadBalancer {
 }
 
 async fn handle_request(
-    downstreams: Arc<RwLock<Vec<u16>>>,
     downstream_addr: SocketAddrV4,
-    container: Container,
     client: Client<HttpConnector>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
@@ -114,29 +96,6 @@ async fn handle_request(
         .path_and_query()
         .map(PathAndQuery::as_str)
         .unwrap_or("/");
-
-    if path == "/spawn" {
-        tracing::info!(%path, "Spawning new container to deal with downstream traffic");
-
-        // Spawn the container
-        let port = crate::docker::create_and_start_on_random_port(
-            &container.image,
-            &container.tag,
-            container.port as u32,
-        )
-        .await
-        .expect("Failed to create a new container");
-
-        let mut writer = downstreams.write().unwrap();
-        writer.push(port);
-
-        let response = Response::builder()
-            .status(StatusCode::CREATED)
-            .body(Body::empty())
-            .expect("Failed to create response");
-
-        return Ok(response);
-    }
 
     tracing::info!(%downstream_addr, %path, "Proxing request to a downstream server");
 
@@ -148,12 +107,23 @@ async fn handle_request(
 }
 
 #[tracing::instrument]
-async fn check_for_newer_images(container: Container, registry: RegistryConfig) -> Result<()> {
+async fn check_for_newer_images(
+    container: Container,
+    registry: Registry,
+    current_tag: String,
+) -> Result<()> {
     loop {
-        let tag = docker_registry::check_for_newer_tag(&container.image, &container.tag, &registry)
-            .await?;
+        if let Some(tag) =
+            docker_registry::check_for_newer_tag(&container, &registry, &current_tag).await?
+        {
+            tracing::info!(%tag, "Found a new tag in the Docker registry");
 
-        tracing::info!(?tag, "Checked the Docker registry for a newer tag");
+            // Boot the new container
+            let binding =
+                docker::create_and_start_on_random_port(&container, &registry, &tag).await?;
+
+            tracing::info!(%binding, "Started a new container with the new tag");
+        }
 
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }

@@ -3,7 +3,7 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub app: String,
-    pub tag: String,
+    pub tag: Option<String>,
     pub port: u16,
     pub replicas: u32,
     pub registry: RegistryConfig,

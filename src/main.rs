@@ -2,9 +2,11 @@ use std::fs;
 
 use anyhow::Result;
 
+use crate::common::{Container, Registry};
 use crate::config::Config;
-use crate::load_balancing::{Container, LoadBalancer};
+use crate::load_balancing::LoadBalancer;
 
+mod common;
 mod config;
 mod docker;
 mod docker_registry;
@@ -49,22 +51,38 @@ async fn main() -> Result<()> {
     let raw_config = fs::read_to_string(args.get_config_path())?;
     let config: Config = toml::from_str(&raw_config)?;
 
+    let container = Container {
+        image: config.app.clone(),
+        target_port: config.port,
+    };
+
+    let registry = Registry {
+        base: config.registry.endpoint,
+        repository: config.registry.repository_account,
+        username: config.registry.username,
+        password: config.registry.password,
+    };
+
+    // Fetch the latest tag for the client, if it hasn't been pinned in the config
+    let tag = match config.tag {
+        Some(t) => t,
+        None => docker_registry::fetch_latest_tag(&container, &registry)
+            .await?
+            .expect("No tags found"),
+    };
+
     // Define some ports
     let container_count = config.replicas;
     let mut ports = Vec::new();
 
     // Start all the containers
     for _ in 0..container_count {
-        let port =
-            docker::create_and_start_on_random_port(&config.app, &config.tag, config.port as u32)
-                .await?;
+        let port = docker::create_and_start_on_random_port(&container, &registry, &tag).await?;
 
         ports.push(port);
     }
 
-    let container = Container::new(config.app.clone(), config.tag.clone(), config.port);
-
-    let mut load_balancer = LoadBalancer::new(4999, container, ports, config.registry);
+    let mut load_balancer = LoadBalancer::new(4999, container, registry, ports, tag);
 
     load_balancer.start().await?;
 
