@@ -52,7 +52,10 @@ impl Client {
             .method(Method::POST)
             .body(Body::empty())?;
 
-        self.client.request(request).await?;
+        let mut response = self.client.request(request).await?;
+
+        // Make sure we read the whole body
+        hyper::body::to_bytes(response.body_mut()).await?;
 
         Ok(())
     }
