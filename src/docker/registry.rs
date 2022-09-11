@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use dkregistry::v2::Client;
-use futures::StreamExt;
+use futures::TryStreamExt;
 
 use crate::common::{Container, Registry};
 
@@ -24,7 +24,8 @@ pub async fn check_for_newer_tag(
 
 #[tracing::instrument]
 async fn fetch_tags(container: &Container, registry: &Registry) -> Result<Vec<String>> {
-    let scope = format!("repository:{}:pull", container.image);
+    let image_repository = format!("{}/{}", registry.repository, container.image);
+    let scope = format!("repository:{}:pull", image_repository);
     let base = registry.base.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
 
     let client = Client::configure()
@@ -35,13 +36,12 @@ async fn fetch_tags(container: &Container, registry: &Registry) -> Result<Vec<St
         .authenticate(&[&scope])
         .await?;
 
+    tracing::debug!(%image_repository, "Fetching tags from the repository");
+
     let tags = client
-        .get_tags(&container.image, None)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .filter_map(Result::ok)
-        .collect();
+        .get_tags(&image_repository, None)
+        .try_collect()
+        .await?;
 
     Ok(tags)
 }
@@ -91,7 +91,7 @@ pub async fn fetch_latest_tag(
 
 #[cfg(test)]
 mod tests {
-    use crate::docker_registry::find_newer_tag;
+    use crate::docker::registry::find_newer_tag;
 
     #[test]
     fn empty_when_no_newer_tag_exists() {

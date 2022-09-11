@@ -74,9 +74,16 @@ impl LoadBalancer {
 
         // Spin up the auto-reloading functionality
         tokio::spawn(async move {
-            check_for_newer_images(container, registry, current_tag)
-                .await
-                .expect("Failed to check for newer images");
+            loop {
+                let result = check_for_newer_images(&container, &registry, &current_tag).await;
+
+                match result {
+                    Ok(()) => unreachable!("Should never break out of the above function"),
+                    Err(e) => {
+                        tracing::error!(error = ?e, "Encountered an error while checking for newer images")
+                    }
+                }
+            }
         });
 
         let server = Server::bind(&addr).serve(make_service);
@@ -108,11 +115,13 @@ async fn handle_request(
 
 #[tracing::instrument]
 async fn check_for_newer_images(
-    container: Container,
-    registry: Registry,
-    current_tag: String,
+    container: &Container,
+    registry: &Registry,
+    current_tag: &str,
 ) -> Result<()> {
     loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
         if let Some(tag) =
             docker::registry::check_for_newer_tag(&container, &registry, &current_tag).await?
         {
@@ -124,7 +133,5 @@ async fn check_for_newer_images(
 
             tracing::info!(%binding, "Started a new container with the new tag");
         }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }

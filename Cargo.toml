@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.58"
 chrono = "0.4.19"
-dkregistry = { git = "https://github.com/camallo/dkregistry-rs" }
+dkregistry = { git = "https://github.com/camallo/dkregistry-rs", rev = "37acecb", features = ["reqwest-rustls"] }
 futures = "0.3.21"
 hyper = { version = "0.14.20", features = ["client", "server", "tcp", "http1"] }
 hyperlocal = "0.8.0"
