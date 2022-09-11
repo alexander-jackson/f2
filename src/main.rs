@@ -9,7 +9,6 @@ use crate::load_balancing::LoadBalancer;
 mod common;
 mod config;
 mod docker;
-mod docker_registry;
 mod load_balancing;
 
 struct Args {
@@ -66,7 +65,7 @@ async fn main() -> Result<()> {
     // Fetch the latest tag for the client, if it hasn't been pinned in the config
     let tag = match config.tag {
         Some(t) => t,
-        None => docker_registry::fetch_latest_tag(&container, &registry)
+        None => docker::registry::fetch_latest_tag(&container, &registry)
             .await?
             .expect("No tags found"),
     };
@@ -77,7 +76,8 @@ async fn main() -> Result<()> {
 
     // Start all the containers
     for _ in 0..container_count {
-        let port = docker::create_and_start_on_random_port(&container, &registry, &tag).await?;
+        let port =
+            docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
 
         ports.push(port);
     }

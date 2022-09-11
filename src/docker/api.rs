@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::common::{Container, Registry};
+use crate::docker::client::Client;
 
 #[tracing::instrument]
 pub async fn create_and_start_on_random_port(
@@ -10,7 +11,7 @@ pub async fn create_and_start_on_random_port(
     registry: &Registry,
     tag: &str,
 ) -> Result<u16> {
-    let client = cargoship::Client::new("/var/run/docker.sock");
+    let client = Client::new("/var/run/docker.sock");
 
     // Ensure the image exists locally
     pull_image_if_needed(&client, &container, &registry, tag).await?;
@@ -39,7 +40,7 @@ pub async fn create_and_start_on_random_port(
 }
 
 async fn pull_image_if_needed(
-    client: &cargoship::Client,
+    client: &Client,
     container: &Container,
     registry: &Registry,
     tag: &str,

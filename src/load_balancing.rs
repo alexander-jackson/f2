@@ -9,7 +9,7 @@ use hyper::{Body, Client, Error, Request, Response, Server};
 use rand::prelude::{SeedableRng, SliceRandom, SmallRng};
 
 use crate::common::{Container, Registry};
-use crate::{docker, docker_registry};
+use crate::docker;
 
 #[derive(Clone, Debug)]
 pub struct LoadBalancer {
@@ -114,13 +114,13 @@ async fn check_for_newer_images(
 ) -> Result<()> {
     loop {
         if let Some(tag) =
-            docker_registry::check_for_newer_tag(&container, &registry, &current_tag).await?
+            docker::registry::check_for_newer_tag(&container, &registry, &current_tag).await?
         {
             tracing::info!(%tag, "Found a new tag in the Docker registry");
 
             // Boot the new container
             let binding =
-                docker::create_and_start_on_random_port(&container, &registry, &tag).await?;
+                docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
 
             tracing::info!(%binding, "Started a new container with the new tag");
         }
