@@ -67,23 +67,20 @@ impl Client {
     ) -> Result<String> {
         let uri = self.build_uri("/containers/create");
 
-        let exposed_ports = port_mapping
-            .keys()
-            .map(|k| (format!("{}/tcp", k), HashMap::new()))
-            .collect();
+        let mut exposed_ports = HashMap::new();
+        let mut port_bindings = HashMap::new();
 
-        let port_bindings = port_mapping
-            .iter()
-            .map(|(k, v)| {
-                (
-                    format!("{}/tcp", k),
-                    vec![PortBinding {
-                        host_ip: None,
-                        host_port: v.to_string(),
-                    }],
-                )
-            })
-            .collect();
+        port_mapping.iter().for_each(|(key, value)| {
+            let port_and_protocol = format!("{}/tcp", key);
+
+            let binding = PortBinding {
+                host_ip: None,
+                host_port: value.to_string(),
+            };
+
+            exposed_ports.insert(port_and_protocol.clone(), HashMap::new());
+            port_bindings.insert(port_and_protocol.clone(), vec![binding]);
+        });
 
         let options = CreateContainerOptions {
             image: String::from(image),

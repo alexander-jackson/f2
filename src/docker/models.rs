@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 type EmptyMap = HashMap<(), ()>;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct ImageSummary {
-    #[serde(rename = "RepoTags")]
     pub repo_tags: Vec<String>,
 }
 
