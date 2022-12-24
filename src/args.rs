@@ -16,6 +16,6 @@ impl Args {
     pub fn get_config_path(&self) -> String {
         self.config
             .clone()
-            .unwrap_or_else(|| String::from("f2.toml"))
+            .unwrap_or_else(|| String::from("f2.yaml"))
     }
 }

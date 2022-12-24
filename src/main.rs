@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::fs;
 
 use anyhow::Result;
 
 use crate::args::Args;
 use crate::common::{Container, Registry};
-use crate::config::Config;
+use crate::config::{Config, Service};
 use crate::load_balancer::LoadBalancer;
 
 mod args;
@@ -30,12 +31,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse()?;
     let raw_config = fs::read_to_string(args.get_config_path())?;
-    let config: Config = toml::from_str(&raw_config)?;
-
-    let container = Container {
-        image: config.app.clone(),
-        target_port: config.port,
-    };
+    let config: Config = serde_yaml::from_str(&raw_config)?;
 
     let registry = Registry {
         base: config.registry.endpoint,
@@ -44,27 +40,43 @@ async fn main() -> Result<()> {
         password: config.registry.password,
     };
 
-    // Fetch the latest tag for the client, if it hasn't been pinned in the config
-    let tag = match config.tag {
-        Some(t) => t,
-        None => docker::registry::fetch_latest_tag(&container, &registry)
-            .await?
-            .expect("No tags found"),
-    };
+    let mut service_map: HashMap<Service, Vec<u16>> = HashMap::new();
 
-    // Define some ports
-    let container_count = config.replicas;
-    let mut ports = Vec::new();
+    for service in &config.services {
+        let container = Container {
+            image: service.app.clone(),
+            target_port: service.port,
+        };
 
-    // Start all the containers
-    for _ in 0..container_count {
-        let port =
-            docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
+        // Fetch the latest tag for the client, if it hasn't been pinned in the config
+        let tag = match service.tag.clone() {
+            Some(t) => t,
+            None => docker::registry::fetch_latest_tag(&container, &registry)
+                .await?
+                .expect("No tags found"),
+        };
 
-        ports.push(port);
+        let mut ports = Vec::new();
+
+        for _ in 0..service.replicas {
+            let port =
+                docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
+
+            ports.push(port);
+        }
+
+        let enriched_service = Service {
+            app: service.app.clone(),
+            tag: Some(tag),
+            port: service.port,
+            replicas: service.replicas,
+            host: service.host.clone(),
+        };
+
+        service_map.insert(enriched_service, ports);
     }
 
-    let mut load_balancer = LoadBalancer::new(4999, container, registry, ports, tag);
+    let mut load_balancer = LoadBalancer::new(4999, registry, service_map);
 
     load_balancer.start().await?;
 

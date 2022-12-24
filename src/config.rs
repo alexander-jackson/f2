@@ -2,11 +2,17 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    pub registry: RegistryConfig,
+    pub services: Vec<Service>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize)]
+pub struct Service {
     pub app: String,
     pub tag: Option<String>,
     pub port: u16,
     pub replicas: u32,
-    pub registry: RegistryConfig,
+    pub host: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

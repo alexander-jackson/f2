@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::{Arc, RwLock};
+use std::ops::DerefMut;
+use std::sync::Arc;
 
 use anyhow::Result;
 use hyper::client::HttpConnector;
@@ -7,40 +9,36 @@ use hyper::http::uri::PathAndQuery;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Error, Request, Response, Server};
 use rand::prelude::{SeedableRng, SliceRandom, SmallRng};
+use tokio::sync::Mutex;
 
 use crate::common::{Container, Registry};
+use crate::config::Service;
 use crate::docker;
+
+type ServiceMap = HashMap<Service, Vec<u16>>;
 
 #[derive(Clone, Debug)]
 pub struct LoadBalancer {
     port: u16,
-    container: Container,
-    registry: Registry,
-    downstreams: Arc<RwLock<Vec<u16>>>,
+    registry: Arc<Registry>,
+    service_map: Arc<ServiceMap>,
     client: Client<HttpConnector>,
-    rng: SmallRng,
-    current_tag: String,
+    rng: Arc<Mutex<SmallRng>>,
 }
 
 impl LoadBalancer {
-    pub fn new(
-        port: u16,
-        container: Container,
-        registry: Registry,
-        downstreams: Vec<u16>,
-        current_tag: String,
-    ) -> Self {
+    pub fn new(port: u16, registry: Registry, service_map: ServiceMap) -> Self {
+        let registry = Arc::new(registry);
+        let service_map = Arc::new(service_map);
         let client = Client::new();
-        let rng = SmallRng::from_entropy();
+        let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
 
         Self {
             port,
-            container,
             registry,
-            downstreams: Arc::new(RwLock::new(downstreams)),
+            service_map,
             client,
             rng,
-            current_tag,
         }
     }
 
@@ -48,41 +46,52 @@ impl LoadBalancer {
         // Create the server itself on the given port
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.port).into();
 
-        let container = self.container.clone();
-        let registry = self.registry.clone();
-        let current_tag = self.current_tag.clone();
+        let service_map = Arc::clone(&self.service_map);
+        let client = self.client.clone();
+        let rng = Arc::clone(&self.rng);
 
         let service = make_service_fn(move |_| {
-            let client = self.client.clone();
-            let downstreams = self.downstreams.clone();
-
-            let reader = downstreams.read().unwrap();
-            let downstream = *reader
-                .choose(&mut self.rng)
-                .expect("No available downstreams");
-
-            drop(reader);
-
-            let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
+            let client = client.clone();
+            let rng = Arc::clone(&rng);
+            let service_map = Arc::clone(&service_map);
 
             async move {
                 Ok::<_, Error>(service_fn(move |req| {
-                    proxy_request_downstream(downstream_addr, client.clone(), req)
+                    proxy_request_downstream(
+                        Arc::clone(&service_map),
+                        Arc::clone(&rng),
+                        client.clone(),
+                        req,
+                    )
                 }))
             }
         });
 
         // Spin up the auto-reloading functionality
-        tokio::spawn(async move {
-            loop {
-                match check_for_newer_images(&container, &registry, &current_tag).await {
-                    Ok(()) => unreachable!("Should never break out of the above function"),
-                    Err(e) => {
-                        tracing::error!(error = ?e, "Encountered an error while checking for newer images")
+        for service in self.service_map.keys() {
+            let registry = Arc::clone(&self.registry);
+
+            let container = Container {
+                image: service.app.clone(),
+                target_port: service.port,
+            };
+
+            let current_tag = service
+                .tag
+                .clone()
+                .expect("Failed to get tag for enriched service");
+
+            tokio::spawn(async move {
+                loop {
+                    match check_for_newer_images(&container, &registry, &current_tag).await {
+                        Ok(()) => unreachable!("Should never break out of the above function"),
+                        Err(e) => {
+                            tracing::error!(error = ?e, "Encountered an error while checking for newer images")
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
         let server = Server::bind(&addr).serve(service);
         server.await?;
@@ -92,10 +101,31 @@ impl LoadBalancer {
 }
 
 async fn proxy_request_downstream(
-    downstream_addr: SocketAddrV4,
+    service_map: Arc<ServiceMap>,
+    rng: Arc<Mutex<SmallRng>>,
     client: Client<HttpConnector>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, Error> {
+    let host = req
+        .headers()
+        .get(hyper::header::HOST)
+        .expect("Failed to get `host` header")
+        .to_str()
+        .expect("Invalid header supplied");
+
+    let downstreams = service_map
+        .iter()
+        .find_map(|(service, downstreams)| (service.host == host).then_some(downstreams))
+        .expect("Failed to find downstream hosts");
+
+    let mut rng = rng.lock().await;
+
+    let downstream = *downstreams
+        .choose(rng.deref_mut())
+        .expect("No available downstreams");
+
+    let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
+
     let path = req
         .uri()
         .path_and_query()
