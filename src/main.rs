@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 
 use anyhow::Result;
 
@@ -30,8 +29,7 @@ async fn main() -> Result<()> {
     setup();
 
     let args = Args::parse()?;
-    let raw_config = fs::read_to_string(args.get_config_path())?;
-    let config: Config = serde_yaml::from_str(&raw_config)?;
+    let config = Config::from_file(args.get_config_path())?;
 
     let registry = Registry {
         base: config.registry.endpoint,
