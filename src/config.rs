@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    pub registry: RegistryConfig,
+    pub registry: RegistryDetails,
     pub services: Vec<Service>,
 }
 
@@ -29,7 +29,7 @@ pub struct Service {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct RegistryConfig {
+pub struct RegistryDetails {
     pub endpoint: Option<String>,
     pub repository_account: String,
     pub username: Option<String>,

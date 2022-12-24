@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 
     let mut service_map: HashMap<Service, Vec<u16>> = HashMap::new();
 
-    for service in config.services.into_iter() {
+    for service in config.services {
         let container = Container {
             image: service.app.clone(),
             target_port: service.port,

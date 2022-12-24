@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -83,7 +82,7 @@ impl LoadBalancer {
                     match check_for_newer_images(&container, &registry, &current_tag).await {
                         Ok(()) => unreachable!("Should never break out of the above function"),
                         Err(e) => {
-                            tracing::error!(error = ?e, "Encountered an error while checking for newer images")
+                            tracing::error!(error = ?e, "Encountered an error while checking for newer images");
                         }
                     }
                 }
@@ -118,22 +117,16 @@ async fn proxy_request_downstream(
     let mut rng = rng.lock().await;
 
     let downstream = *downstreams
-        .choose(rng.deref_mut())
+        .choose(&mut *rng)
         .expect("No available downstreams");
 
     let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
 
-    let path = req
-        .uri()
-        .path_and_query()
-        .map(PathAndQuery::as_str)
-        .unwrap_or("/");
+    let path = req.uri().path_and_query().map_or("/", PathAndQuery::as_str);
 
     tracing::info!(%downstream_addr, %path, "Proxing request to a downstream server");
 
-    *req.uri_mut() = format!("http://{}{}", downstream_addr, path)
-        .parse()
-        .unwrap();
+    *req.uri_mut() = format!("http://{downstream_addr}{path}").parse().unwrap();
 
     client.request(req).await
 }
@@ -148,13 +141,13 @@ async fn check_for_newer_images(
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
         if let Some(tag) =
-            docker::registry::check_for_newer_tag(&container, &registry, &current_tag).await?
+            docker::registry::check_for_newer_tag(container, registry, current_tag).await?
         {
             tracing::info!(%tag, "Found a new tag in the Docker registry");
 
             // Boot the new container
             let binding =
-                docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
+                docker::api::create_and_start_on_random_port(container, registry, &tag).await?;
 
             tracing::info!(%binding, "Started a new container with the new tag");
         }

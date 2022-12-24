@@ -42,7 +42,7 @@ impl Client {
     }
 
     pub async fn pull_image(&self, repo: &str, image: &str, tag: &str) -> Result<()> {
-        let path_and_query = format!("/images/create?fromImage={}/{}:{}", repo, image, tag);
+        let path_and_query = format!("/images/create?fromImage={repo}/{image}:{tag}");
         let uri = self.build_uri(&path_and_query);
 
         tracing::info!(%repo, %image, %tag, "Pulling an image from the Docker registry");
@@ -57,10 +57,7 @@ impl Client {
         // Check the image actually exists on the remote
         anyhow::ensure!(
             response.status().is_success(),
-            "Failed to pull image {}/{}:{} from the remote, it may not exist",
-            repo,
-            image,
-            tag
+            "Failed to pull image {repo}/{image}:{tag} from the remote, it may not exist",
         );
 
         // Make sure we read the whole body
@@ -79,8 +76,8 @@ impl Client {
         let mut exposed_ports = HashMap::new();
         let mut port_bindings = HashMap::new();
 
-        port_mapping.iter().for_each(|(key, value)| {
-            let port_and_protocol = format!("{}/tcp", key);
+        for (key, value) in port_mapping.iter() {
+            let port_and_protocol = format!("{key}/tcp");
 
             let binding = PortBinding {
                 host_ip: None,
@@ -88,8 +85,8 @@ impl Client {
             };
 
             exposed_ports.insert(port_and_protocol.clone(), HashMap::new());
-            port_bindings.insert(port_and_protocol.clone(), vec![binding]);
-        });
+            port_bindings.insert(port_and_protocol, vec![binding]);
+        }
 
         let options = CreateContainerOptions {
             image: String::from(image),
@@ -117,7 +114,7 @@ impl Client {
     }
 
     pub async fn start_container(&self, id: &str) -> Result<()> {
-        let path = format!("/containers/{}/start", id);
+        let path = format!("/containers/{id}/start");
         let uri = self.build_uri(&path);
 
         tracing::info!(?id, "Starting a container");
@@ -133,7 +130,7 @@ impl Client {
     }
 
     pub async fn get_exposed_ports(&self, id: &str) -> Result<HashMap<u16, u16>> {
-        let path = format!("/containers/{}/json", id);
+        let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 
         tracing::info!(?id, "Fetching exposed ports for a container");

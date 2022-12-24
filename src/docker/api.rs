@@ -14,10 +14,10 @@ pub async fn create_and_start_on_random_port(
     let client = Client::new("/var/run/docker.sock");
 
     // Ensure the image exists locally
-    pull_image_if_needed(&client, &container, &registry, tag).await?;
+    pull_image_if_needed(&client, container, registry, tag).await?;
 
     // Create the container
-    let name = format!("{}/{}:{}", registry.repository, container.image, tag);
+    let name = format!("{}/{}:{tag}", registry.repository, container.image);
     let target_port = container.target_port;
 
     let mut exposed_ports = HashMap::new();
@@ -46,7 +46,7 @@ async fn pull_image_if_needed(
     tag: &str,
 ) -> Result<()> {
     // Check whether we have the image locally
-    let expected_tag = format!("{}/{}:{}", registry.repository, container.image, tag);
+    let expected_tag = format!("{}/{}:{tag}", registry.repository, container.image);
 
     let local_images = client.fetch_images().await?;
 

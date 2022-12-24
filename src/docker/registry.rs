@@ -25,7 +25,7 @@ pub async fn check_for_newer_tag(
 #[tracing::instrument]
 async fn fetch_tags(container: &Container, registry: &Registry) -> Result<Vec<String>> {
     let image_repository = format!("{}/{}", registry.repository, container.image);
-    let scope = format!("repository:{}:pull", image_repository);
+    let scope = format!("repository:{image_repository}:pull");
     let base = registry.base.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
 
     let client = Client::configure()
