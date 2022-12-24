@@ -54,6 +54,15 @@ impl Client {
 
         let mut response = self.client.request(request).await?;
 
+        // Check the image actually exists on the remote
+        anyhow::ensure!(
+            response.status().is_success(),
+            "Failed to pull image {}/{}:{} from the remote, it may not exist",
+            repo,
+            image,
+            tag
+        );
+
         // Make sure we read the whole body
         hyper::body::to_bytes(response.body_mut()).await?;
 
