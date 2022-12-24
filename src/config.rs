@@ -9,7 +9,7 @@ pub struct Config {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize)]
 pub struct Service {
     pub app: String,
-    pub tag: Option<String>,
+    pub tag: String,
     pub port: u16,
     pub replicas: u32,
     pub host: String,

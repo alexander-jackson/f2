@@ -42,38 +42,23 @@ async fn main() -> Result<()> {
 
     let mut service_map: HashMap<Service, Vec<u16>> = HashMap::new();
 
-    for service in &config.services {
+    for service in config.services.into_iter() {
         let container = Container {
             image: service.app.clone(),
             target_port: service.port,
         };
 
-        // Fetch the latest tag for the client, if it hasn't been pinned in the config
-        let tag = match service.tag.clone() {
-            Some(t) => t,
-            None => docker::registry::fetch_latest_tag(&container, &registry)
-                .await?
-                .expect("No tags found"),
-        };
-
         let mut ports = Vec::new();
 
         for _ in 0..service.replicas {
-            let port =
-                docker::api::create_and_start_on_random_port(&container, &registry, &tag).await?;
+            let tag = &service.tag;
 
-            ports.push(port);
+            ports.push(
+                docker::api::create_and_start_on_random_port(&container, &registry, tag).await?,
+            );
         }
 
-        let enriched_service = Service {
-            app: service.app.clone(),
-            tag: Some(tag),
-            port: service.port,
-            replicas: service.replicas,
-            host: service.host.clone(),
-        };
-
-        service_map.insert(enriched_service, ports);
+        service_map.insert(service, ports);
     }
 
     let mut load_balancer = LoadBalancer::new(4999, registry, service_map);

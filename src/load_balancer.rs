@@ -76,10 +76,7 @@ impl LoadBalancer {
                 target_port: service.port,
             };
 
-            let current_tag = service
-                .tag
-                .clone()
-                .expect("Failed to get tag for enriched service");
+            let current_tag = service.tag.clone();
 
             tokio::spawn(async move {
                 loop {
