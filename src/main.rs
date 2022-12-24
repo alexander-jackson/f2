@@ -2,34 +2,16 @@ use std::fs;
 
 use anyhow::Result;
 
+use crate::args::Args;
 use crate::common::{Container, Registry};
 use crate::config::Config;
-use crate::load_balancing::LoadBalancer;
+use crate::load_balancer::LoadBalancer;
 
+mod args;
 mod common;
 mod config;
 mod docker;
-mod load_balancing;
-
-struct Args {
-    config: Option<String>,
-}
-
-impl Args {
-    fn parse() -> Result<Self> {
-        let mut args = pico_args::Arguments::from_env();
-
-        Ok(Self {
-            config: args.opt_value_from_str("--config")?,
-        })
-    }
-
-    fn get_config_path(&self) -> String {
-        self.config
-            .clone()
-            .unwrap_or_else(|| String::from("f2.toml"))
-    }
-}
+mod load_balancer;
 
 fn setup() {
     // Set `RUST_LOG` if not set

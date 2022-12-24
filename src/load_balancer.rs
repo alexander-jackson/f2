@@ -52,7 +52,7 @@ impl LoadBalancer {
         let registry = self.registry.clone();
         let current_tag = self.current_tag.clone();
 
-        let make_service = make_service_fn(move |_| {
+        let service = make_service_fn(move |_| {
             let client = self.client.clone();
             let downstreams = self.downstreams.clone();
 
@@ -67,7 +67,7 @@ impl LoadBalancer {
 
             async move {
                 Ok::<_, Error>(service_fn(move |req| {
-                    handle_request(downstream_addr, client.clone(), req)
+                    proxy_request_downstream(downstream_addr, client.clone(), req)
                 }))
             }
         });
@@ -75,9 +75,7 @@ impl LoadBalancer {
         // Spin up the auto-reloading functionality
         tokio::spawn(async move {
             loop {
-                let result = check_for_newer_images(&container, &registry, &current_tag).await;
-
-                match result {
+                match check_for_newer_images(&container, &registry, &current_tag).await {
                     Ok(()) => unreachable!("Should never break out of the above function"),
                     Err(e) => {
                         tracing::error!(error = ?e, "Encountered an error while checking for newer images")
@@ -86,14 +84,14 @@ impl LoadBalancer {
             }
         });
 
-        let server = Server::bind(&addr).serve(make_service);
+        let server = Server::bind(&addr).serve(service);
         server.await?;
 
         Ok(())
     }
 }
 
-async fn handle_request(
+async fn proxy_request_downstream(
     downstream_addr: SocketAddrV4,
     client: Client<HttpConnector>,
     mut req: Request<Body>,
