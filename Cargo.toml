@@ -6,17 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.58"
-chrono = "0.4.19"
+anyhow = "1.0.68"
+chrono = "0.4.23"
 dkregistry = { git = "https://github.com/camallo/dkregistry-rs", rev = "37acecb", features = ["reqwest-rustls"] }
-futures = "0.3.21"
-hyper = { version = "0.14.20", features = ["client", "server", "tcp", "http1"] }
+futures = "0.3.25"
+hyper = { version = "0.14.23", features = ["client", "server", "tcp", "http1"] }
 hyperlocal = "0.8.0"
 pico-args = "0.5.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
-serde = { version = "1.0.139", features = ["derive"] }
-serde_json = "1.0.85"
-tokio = { version = "1.20.0", features = ["macros", "rt-multi-thread", "time"] }
-toml = "0.5.9"
-tracing = "0.1.35"
-tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
+serde = { version = "1.0.151", features = ["derive"] }
+serde_json = "1.0.91"
+tokio = { version = "1.23.0", features = ["macros", "rt-multi-thread", "time"] }
+toml = "0.5.10"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
