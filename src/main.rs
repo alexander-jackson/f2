@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
 use anyhow::Result;
 
@@ -61,9 +60,7 @@ async fn main() -> Result<()> {
     }
 
     let mut load_balancer = LoadBalancer::new(registry, service_map);
-    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4999))?;
-
-    load_balancer.start(listener).await?;
+    load_balancer.start_on_port(5000).await?;
 
     Ok(())
 }

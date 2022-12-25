@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::TcpListener;
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::sync::Arc;
 
 use anyhow::{Error, Result};
@@ -38,6 +38,13 @@ impl LoadBalancer {
             client,
             rng,
         }
+    }
+
+    pub async fn start_on_port(&mut self, port: u16) -> Result<()> {
+        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+        let listener = TcpListener::bind(&addr)?;
+
+        self.start(listener).await
     }
 
     pub async fn start(&mut self, listener: TcpListener) -> Result<()> {
