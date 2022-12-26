@@ -124,17 +124,25 @@ async fn check_for_newer_images(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 
     use anyhow::{Error, Result};
     use hyper::header::HOST;
     use hyper::service::{make_service_fn, service_fn};
-    use hyper::{Body, Client, Request, Response, Server};
+    use hyper::{Body, Client, Request, Response, Server, StatusCode};
 
     use crate::common::Registry;
     use crate::config::Service;
     use crate::load_balancer::LoadBalancer;
+
+    fn some_registry() -> Registry {
+        Registry {
+            base: None,
+            repository: String::from("blah"),
+            username: None,
+            password: None,
+        }
+    }
 
     fn create_service(host: &'static str) -> Service {
         Service {
@@ -148,6 +156,15 @@ mod tests {
 
     async fn handler(response: &'static str) -> Result<Response<Body>> {
         Ok(Response::new(Body::from(response)))
+    }
+
+    async fn handle_health_checks(req: Request<Body>) -> Result<Response<Body>> {
+        let response = match req.uri().path() {
+            "/health" => Response::new(Body::empty()),
+            _ => Response::builder().status(404).body(Body::empty())?,
+        };
+
+        Ok(response)
     }
 
     async fn spawn_fixed_response_server(response: &'static str) -> Result<SocketAddr> {
@@ -171,16 +188,14 @@ mod tests {
         Ok(resolved_addr)
     }
 
-    async fn spawn_load_balancer(
-        registry: Registry,
-        service_map: super::ServiceMap,
-    ) -> Result<SocketAddr> {
+    async fn spawn_load_balancer(service_map: super::ServiceMap) -> Result<SocketAddr> {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
         let listener = TcpListener::bind(&addr)?;
 
         let resolved_addr = listener.local_addr()?;
 
         tokio::spawn(async move {
+            let registry = some_registry();
             let mut load_balancer = LoadBalancer::new(registry, service_map);
 
             load_balancer
@@ -194,29 +209,23 @@ mod tests {
 
     #[tokio::test]
     async fn can_proxy_requests_based_on_host_header() -> Result<()> {
-        let registry = Registry {
-            base: None,
-            repository: String::from("blah"),
-            username: None,
-            password: None,
-        };
-
         let opentracker_addr = spawn_fixed_response_server("Hello from OpenTracker").await?;
         let blackboards_addr = spawn_fixed_response_server("Hello from Blackboards").await?;
 
-        let mut service_map = HashMap::new();
+        let service_map = [
+            (
+                create_service("opentracker.app"),
+                vec![opentracker_addr.port()],
+            ),
+            (
+                create_service("blackboards.pl"),
+                vec![blackboards_addr.port()],
+            ),
+        ]
+        .into_iter()
+        .collect();
 
-        service_map.insert(
-            create_service("opentracker.app"),
-            vec![opentracker_addr.port()],
-        );
-
-        service_map.insert(
-            create_service("blackboards.pl"),
-            vec![blackboards_addr.port()],
-        );
-
-        let load_balancer_addr = spawn_load_balancer(registry, service_map).await?;
+        let load_balancer_addr = spawn_load_balancer(service_map).await?;
 
         let client = Client::new();
 
@@ -230,6 +239,56 @@ mod tests {
         let body = std::str::from_utf8(&bytes)?;
 
         assert_eq!(body, "Hello from Blackboards");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn request_paths_are_proxied_downstream() -> Result<()> {
+        let host = "opentracker.app";
+
+        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+        let listener = TcpListener::bind(&addr)?;
+
+        let service = make_service_fn(move |_| async move {
+            Ok::<_, Error>(service_fn(move |req| handle_health_checks(req)))
+        });
+
+        let resolved_addr = listener.local_addr()?;
+
+        tokio::spawn(async move {
+            let server = Server::from_tcp(listener)
+                .expect("Failed to create server")
+                .serve(service);
+
+            server.await.expect("Failed to run server");
+        });
+
+        let service_map = [(create_service(host), vec![resolved_addr.port()])]
+            .into_iter()
+            .collect();
+
+        let load_balancer_addr = spawn_load_balancer(service_map).await?;
+
+        let client = Client::new();
+
+        let request = Request::builder()
+            .uri(format!("http://{}/health", load_balancer_addr))
+            .header(HOST, host)
+            .body(Body::empty())?;
+
+        let response = client.request(request).await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let request = Request::builder()
+            .uri(format!("http://{}/something-else", load_balancer_addr))
+            .header(HOST, host)
+            .body(Body::empty())?;
+
+        let response = client.request(request).await?;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         Ok(())
     }
