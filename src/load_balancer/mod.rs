@@ -42,7 +42,7 @@ impl LoadBalancer {
 
     pub async fn start_on_port(&mut self, port: u16) -> Result<()> {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
-        let listener = TcpListener::bind(&addr)?;
+        let listener = TcpListener::bind(addr)?;
 
         self.start(listener).await
     }

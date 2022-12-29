@@ -13,9 +13,7 @@ use crate::load_balancer::ServiceMap;
 fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
     let Some(prefix) = prefix else { return path.len() };
 
-    path.strip_prefix(prefix)
-        .map(str::len)
-        .unwrap_or(usize::MAX)
+    path.strip_prefix(prefix).map_or(usize::MAX, str::len)
 }
 
 pub async fn handle_request(
