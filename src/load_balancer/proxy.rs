@@ -10,6 +10,14 @@ use tokio::sync::Mutex;
 
 use crate::load_balancer::ServiceMap;
 
+fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
+    let Some(prefix) = prefix else { return path.len() };
+
+    path.strip_prefix(prefix)
+        .map(str::len)
+        .unwrap_or(usize::MAX)
+}
+
 pub async fn handle_request(
     service_map: Arc<ServiceMap>,
     rng: Arc<Mutex<SmallRng>>,
@@ -22,10 +30,19 @@ pub async fn handle_request(
         .context("Failed to get `host` header")?
         .to_str()?;
 
+    let uri = req.uri();
+
+    // Filter based on the host, then do path matching for longest length
     let downstreams = service_map
         .iter()
-        .find_map(|(service, downstreams)| (service.host == host).then_some(downstreams))
-        .context("Failed to find downstream hosts")?;
+        .filter(|entry| entry.0.host == host)
+        .min_by_key(|entry| compute_path_prefix_match(uri.path(), entry.0.path_prefix.as_deref()))
+        .map(|entry| entry.1);
+
+    let Some(downstreams) = downstreams else {
+        let response = Response::builder().status(404).body(Body::empty())?;
+        return Ok(response);
+    };
 
     let downstream = {
         let mut rng = rng.lock().await;
@@ -36,11 +53,11 @@ pub async fn handle_request(
     };
 
     let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
-    let path = req.uri().path_and_query().map_or("/", PathAndQuery::as_str);
+    let path_and_query = uri.path_and_query().map_or("/", PathAndQuery::as_str);
 
-    tracing::info!(%downstream_addr, %path, "Proxing request to a downstream server");
+    tracing::info!(%downstream_addr, %path_and_query, "Proxing request to a downstream server");
 
-    *req.uri_mut() = format!("http://{downstream_addr}{path}").parse()?;
+    *req.uri_mut() = format!("http://{downstream_addr}{path_and_query}").parse()?;
 
     Ok(client.request(req).await?)
 }

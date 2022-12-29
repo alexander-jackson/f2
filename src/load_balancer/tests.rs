@@ -1,6 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 
 use anyhow::{Error, Result};
+use hyper::client::HttpConnector;
 use hyper::header::HOST;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server, StatusCode};
@@ -18,13 +19,14 @@ fn some_registry() -> Registry {
     }
 }
 
-fn create_service(host: &'static str) -> Service {
+fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix: T) -> Service {
     Service {
         app: String::from("application"),
         tag: String::from("20220813-1803"),
         port: 6500,
         replicas: 1,
         host: String::from(host),
+        path_prefix: path_prefix.into().map(ToOwned::to_owned),
     }
 }
 
@@ -89,11 +91,11 @@ async fn can_proxy_requests_based_on_host_header() -> Result<()> {
 
     let service_map = [
         (
-            create_service("opentracker.app"),
+            create_service("opentracker.app", None),
             vec![opentracker_addr.port()],
         ),
         (
-            create_service("blackboards.pl"),
+            create_service("blackboards.pl", None),
             vec![blackboards_addr.port()],
         ),
     ]
@@ -139,7 +141,7 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
         server.await.expect("Failed to run server");
     });
 
-    let service_map = [(create_service(host), vec![resolved_addr.port()])]
+    let service_map = [(create_service(host, None), vec![resolved_addr.port()])]
         .into_iter()
         .collect();
 
@@ -164,6 +166,56 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     let response = client.request(request).await?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    Ok(())
+}
+
+async fn get_response_body(
+    client: &Client<HttpConnector>,
+    request: Request<Body>,
+) -> Result<String> {
+    let mut response = client.request(request).await?;
+    let body = response.body_mut();
+    let bytes = hyper::body::to_bytes(body).await?;
+    let text = String::from_utf8(bytes.to_vec())?;
+
+    Ok(text)
+}
+
+#[tokio::test]
+async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
+    let frontend_reply = "Hello from the frontend";
+    let backend_reply = "Hello from the backend";
+
+    let frontend_addr = spawn_fixed_response_server(frontend_reply).await?;
+    let backend_addr = spawn_fixed_response_server(backend_reply).await?;
+
+    // 2 services on the same host, different paths
+    let host = "opentracker.app";
+    let service_map = [
+        (create_service(host, None), vec![frontend_addr.port()]),
+        (create_service(host, "/api"), vec![backend_addr.port()]),
+    ]
+    .into_iter()
+    .collect();
+
+    let load_balancer_addr = spawn_load_balancer(service_map).await?;
+
+    let client = Client::new();
+
+    let request = Request::builder()
+        .uri(format!("http://{load_balancer_addr}/health"))
+        .header(HOST, "opentracker.app")
+        .body(Body::empty())?;
+
+    assert_eq!(get_response_body(&client, request).await?, frontend_reply);
+
+    let request = Request::builder()
+        .uri(format!("http://{load_balancer_addr}/api/health"))
+        .header(HOST, "opentracker.app")
+        .body(Body::empty())?;
+
+    assert_eq!(get_response_body(&client, request).await?, backend_reply);
 
     Ok(())
 }

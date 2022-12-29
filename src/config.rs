@@ -26,6 +26,7 @@ pub struct Service {
     pub port: u16,
     pub replicas: u32,
     pub host: String,
+    pub path_prefix: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
