@@ -74,7 +74,7 @@ impl LoadBalancer {
             let registry = Arc::clone(&self.registry);
 
             let container = Container {
-                image: service.app.clone(),
+                image: service.image.clone(),
                 target_port: service.port,
             };
 
@@ -85,7 +85,7 @@ impl LoadBalancer {
                     match check_for_newer_images(&container, &registry, &current_tag).await {
                         Ok(()) => unreachable!("Should never break out of the above function"),
                         Err(e) => {
-                            tracing::error!(error = ?e, "Encountered an error while checking for newer images");
+                            tracing::warn!(error = ?e, "Encountered an error while checking for newer images");
                         }
                     }
                 }

@@ -17,7 +17,7 @@ pub async fn create_and_start_on_random_port(
     pull_image_if_needed(&client, container, registry, tag).await?;
 
     // Create the container
-    let name = format!("{}/{}:{tag}", registry.repository, container.image);
+    let name = format!("{}:{tag}", container.image);
     let target_port = container.target_port;
 
     let mut exposed_ports = HashMap::new();
@@ -46,7 +46,7 @@ async fn pull_image_if_needed(
     tag: &str,
 ) -> Result<()> {
     // Check whether we have the image locally
-    let expected_tag = format!("{}/{}:{tag}", registry.repository, container.image);
+    let expected_tag = format!("{}:{tag}", container.image);
 
     let local_images = client.fetch_images().await?;
 
@@ -63,9 +63,7 @@ async fn pull_image_if_needed(
     tracing::info!(?container, ?registry, %tag, "Image does not exist locally, pulling from repository");
 
     // Pull the image from the remote
-    client
-        .pull_image(&registry.repository, &container.image, tag)
-        .await?;
+    client.pull_image(&container.image, tag).await?;
 
     tracing::info!(?container, ?registry, %tag, "Successfully pulled the image from the repository");
 

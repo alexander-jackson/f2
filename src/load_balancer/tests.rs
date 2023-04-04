@@ -13,7 +13,6 @@ use crate::load_balancer::LoadBalancer;
 fn some_registry() -> Registry {
     Registry {
         base: None,
-        repository: String::from("blah"),
         username: None,
         password: None,
     }
@@ -21,7 +20,7 @@ fn some_registry() -> Registry {
 
 fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix: T) -> Service {
     Service {
-        app: String::from("application"),
+        image: String::from("account/application"),
         tag: String::from("20220813-1803"),
         port: 6500,
         replicas: 1,

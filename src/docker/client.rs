@@ -41,11 +41,11 @@ impl Client {
         Ok(summaries)
     }
 
-    pub async fn pull_image(&self, repo: &str, image: &str, tag: &str) -> Result<()> {
-        let path_and_query = format!("/images/create?fromImage={repo}/{image}:{tag}");
+    pub async fn pull_image(&self, image: &str, tag: &str) -> Result<()> {
+        let path_and_query = format!("/images/create?fromImage={image}:{tag}");
         let uri = self.build_uri(&path_and_query);
 
-        tracing::info!(%repo, %image, %tag, "Pulling an image from the Docker registry");
+        tracing::info!(%image, %tag, "Pulling an image from the Docker registry");
 
         let request = Request::builder()
             .uri(uri)
@@ -57,7 +57,7 @@ impl Client {
         // Check the image actually exists on the remote
         anyhow::ensure!(
             response.status().is_success(),
-            "Failed to pull image {repo}/{image}:{tag} from the remote, it may not exist",
+            "Failed to pull image {image}:{tag} from the remote, it may not exist",
         );
 
         // Make sure we read the whole body

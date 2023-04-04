@@ -9,7 +9,7 @@ pub struct Container {
 impl From<&Service> for Container {
     fn from(service: &Service) -> Self {
         Self {
-            image: service.app.clone(),
+            image: service.image.clone(),
             target_port: service.port,
         }
     }
@@ -18,7 +18,6 @@ impl From<&Service> for Container {
 #[derive(Clone, Debug)]
 pub struct Registry {
     pub base: Option<String>,
-    pub repository: String,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -27,7 +26,6 @@ impl From<RegistryDetails> for Registry {
     fn from(registry: RegistryDetails) -> Self {
         Self {
             base: registry.endpoint,
-            repository: registry.repository_account,
             username: registry.username,
             password: registry.password,
         }

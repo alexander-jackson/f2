@@ -21,7 +21,7 @@ impl Config {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize)]
 pub struct Service {
-    pub app: String,
+    pub image: String,
     pub tag: String,
     pub port: u16,
     pub replicas: u32,
@@ -32,7 +32,6 @@ pub struct Service {
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegistryDetails {
     pub endpoint: Option<String>,
-    pub repository_account: String,
     pub username: Option<String>,
     pub password: Option<String>,
 }
