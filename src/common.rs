@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use crate::config::{RegistryDetails, Service};
 
 #[derive(Clone, Debug)]
 pub struct Container {
     pub image: String,
     pub target_port: u16,
+    pub environment: Option<HashMap<String, String>>,
 }
 
 impl From<&Service> for Container {
@@ -11,6 +14,7 @@ impl From<&Service> for Container {
         Self {
             image: service.image.clone(),
             target_port: service.port,
+            environment: service.environment.clone(),
         }
     }
 }

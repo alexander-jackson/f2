@@ -23,7 +23,10 @@ pub async fn create_and_start_on_random_port(
     let mut exposed_ports = HashMap::new();
     exposed_ports.insert(target_port, 0);
 
-    let id = client.create_container(&name, &exposed_ports).await?;
+    let id = client
+        .create_container(&name, &exposed_ports, &container.environment)
+        .await?;
+
     client.start_container(&id).await?;
 
     tracing::info!(%id, %name, %target_port, "Created and started a container");

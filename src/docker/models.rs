@@ -16,6 +16,7 @@ pub struct CreateContainerOptions {
     pub image: String,
     pub exposed_ports: HashMap<String, EmptyMap>,
     pub host_config: HostConfig,
+    pub env: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
