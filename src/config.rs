@@ -10,6 +10,7 @@ use serde::Deserialize;
 pub struct Config {
     pub registry: RegistryDetails,
     pub services: Vec<Service>,
+    pub auxillary_services: Vec<AuxillaryService>,
 }
 
 impl Config {
@@ -37,6 +38,14 @@ impl Hash for Service {
         self.image.hash(state);
         self.tag.hash(state);
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct AuxillaryService {
+    pub image: String,
+    pub tag: String,
+    pub port: u16,
+    pub environment: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

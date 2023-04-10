@@ -116,8 +116,7 @@ async fn check_for_newer_images(
             tracing::info!(%tag, "Found a new tag in the Docker registry");
 
             // Boot the new container
-            let binding =
-                docker::api::create_and_start_on_random_port(container, registry, &tag).await?;
+            let binding = docker::api::create_and_start_on_random_port(container, &tag).await?;
 
             tracing::info!(%binding, "Started a new container with the new tag");
         }
