@@ -70,6 +70,7 @@ impl Client {
         &self,
         image: &str,
         port_mapping: &HashMap<u16, u16>,
+        environment: &Option<HashMap<String, String>>,
     ) -> Result<String> {
         let uri = self.build_uri("/containers/create");
 
@@ -88,10 +89,13 @@ impl Client {
             port_bindings.insert(port_and_protocol, vec![binding]);
         }
 
+        let env = format_environment_variables(environment);
+
         let options = CreateContainerOptions {
             image: String::from(image),
             exposed_ports,
             host_config: HostConfig { port_bindings },
+            env,
         };
 
         tracing::info!(?options, "Creating a container");
@@ -164,4 +168,13 @@ impl Client {
 
         Ok(tcp_exposed_ports)
     }
+}
+
+fn format_environment_variables(environment: &Option<HashMap<String, String>>) -> Vec<String> {
+    let Some(environment) = environment else { return Vec::new() };
+
+    environment
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect()
 }

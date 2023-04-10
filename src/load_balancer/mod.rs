@@ -76,6 +76,8 @@ impl LoadBalancer {
             let container = Container {
                 image: service.image.clone(),
                 target_port: service.port,
+                // TODO: this doesn't need this, the auto-reloading should take something different
+                environment: service.environment.clone(),
             };
 
             let current_tag = service.tag.clone();

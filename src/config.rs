@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use anyhow::Result;
@@ -19,7 +21,7 @@ impl Config {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct Service {
     pub image: String,
     pub tag: String,
@@ -27,6 +29,14 @@ pub struct Service {
     pub replicas: u32,
     pub host: String,
     pub path_prefix: Option<String>,
+    pub environment: Option<HashMap<String, String>>,
+}
+
+impl Hash for Service {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.image.hash(state);
+        self.tag.hash(state);
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
