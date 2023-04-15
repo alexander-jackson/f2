@@ -2,19 +2,15 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::common::{Container, Registry};
+use crate::common::Container;
 use crate::docker::client::Client;
 
 #[tracing::instrument]
-pub async fn create_and_start_on_random_port(
-    container: &Container,
-    registry: &Registry,
-    tag: &str,
-) -> Result<u16> {
+pub async fn create_and_start_on_random_port(container: &Container, tag: &str) -> Result<u16> {
     let client = Client::new("/var/run/docker.sock");
 
     // Ensure the image exists locally
-    pull_image_if_needed(&client, container, registry, tag).await?;
+    pull_image_if_needed(&client, container, tag).await?;
 
     // Create the container
     let name = format!("{}:{tag}", container.image);
@@ -42,12 +38,7 @@ pub async fn create_and_start_on_random_port(
     Ok(binding)
 }
 
-async fn pull_image_if_needed(
-    client: &Client,
-    container: &Container,
-    registry: &Registry,
-    tag: &str,
-) -> Result<()> {
+async fn pull_image_if_needed(client: &Client, container: &Container, tag: &str) -> Result<()> {
     // Check whether we have the image locally
     let expected_tag = format!("{}:{tag}", container.image);
 
@@ -59,16 +50,16 @@ async fn pull_image_if_needed(
         .any(|image| image.repo_tags.contains(&expected_tag));
 
     if exists {
-        tracing::info!(?container, ?registry, %tag, "Image already exists locally");
+        tracing::info!(?container, %tag, "Image already exists locally");
         return Ok(());
     }
 
-    tracing::info!(?container, ?registry, %tag, "Image does not exist locally, pulling from repository");
+    tracing::info!(?container, %tag, "Image does not exist locally, pulling from repository");
 
     // Pull the image from the remote
     client.pull_image(&container.image, tag).await?;
 
-    tracing::info!(?container, ?registry, %tag, "Successfully pulled the image from the repository");
+    tracing::info!(?container, %tag, "Successfully pulled the image from the repository");
 
     Ok(())
 }
