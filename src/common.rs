@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::config::{AuxillaryService, RegistryDetails, Service};
+use crate::config::{AuxillaryService, Service};
 
 #[derive(Clone, Debug)]
 pub struct Container {
@@ -25,23 +25,6 @@ impl From<&AuxillaryService> for Container {
             image: service.image.clone(),
             target_port: service.port,
             environment: service.environment.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Registry {
-    pub base: Option<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-}
-
-impl From<RegistryDetails> for Registry {
-    fn from(registry: RegistryDetails) -> Self {
-        Self {
-            base: registry.endpoint,
-            username: registry.username,
-            password: registry.password,
         }
     }
 }
