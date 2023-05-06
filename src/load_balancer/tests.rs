@@ -6,17 +6,8 @@ use hyper::header::HOST;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server, StatusCode};
 
-use crate::common::Registry;
 use crate::config::Service;
 use crate::load_balancer::LoadBalancer;
-
-fn some_registry() -> Registry {
-    Registry {
-        base: None,
-        username: None,
-        password: None,
-    }
-}
 
 fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix: T) -> Service {
     Service {
@@ -26,6 +17,7 @@ fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix
         replicas: 1,
         host: String::from(host),
         path_prefix: path_prefix.into().map(ToOwned::to_owned),
+        environment: None,
     }
 }
 
@@ -71,8 +63,7 @@ async fn spawn_load_balancer(service_map: super::ServiceMap) -> Result<SocketAdd
     let resolved_addr = listener.local_addr()?;
 
     tokio::spawn(async move {
-        let registry = some_registry();
-        let mut load_balancer = LoadBalancer::new(registry, service_map);
+        let mut load_balancer = LoadBalancer::new(service_map);
 
         load_balancer
             .start(listener)

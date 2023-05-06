@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::args::Args;
-use crate::common::{Container, Registry};
+use crate::common::Container;
 use crate::config::{AuxillaryService, Config, Service};
 use crate::docker::api::create_and_start_on_random_port;
 use crate::load_balancer::LoadBalancer;
@@ -31,13 +31,12 @@ async fn main() -> Result<()> {
 
     let args = Args::parse()?;
     let config = Config::from_file(args.get_config_path())?;
-    let registry = Registry::from(config.registry);
     let service_map = start_services(config.services).await?;
 
     // Start the auxillary services
     start_auxillary_services(config.auxillary_services).await?;
 
-    let mut load_balancer = LoadBalancer::new(registry, service_map);
+    let mut load_balancer = LoadBalancer::new(service_map);
     load_balancer.start_on_port(5000).await?;
 
     Ok(())

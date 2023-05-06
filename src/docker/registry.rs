@@ -3,19 +3,17 @@ use chrono::NaiveDateTime;
 use dkregistry::v2::Client;
 use futures::TryStreamExt;
 
-use crate::common::{Container, Registry};
+use crate::common::Container;
 
-const DOCKER_HUB_REGISTRY: &str = "registry-1.docker.io";
 const TAG_FORMAT: &str = "%Y%m%d-%H%M";
 
 #[tracing::instrument]
 pub async fn check_for_newer_tag(
     container: &Container,
-    registry: &Registry,
     current_tag: &str,
 ) -> Result<Option<String>> {
     // Fetch the tags
-    let tags = fetch_tags(container, registry).await?;
+    let tags = fetch_tags(container).await?;
 
     tracing::debug!(count = %tags.len(), "Found some tags in the Docker registry");
 
@@ -23,18 +21,11 @@ pub async fn check_for_newer_tag(
 }
 
 #[tracing::instrument]
-async fn fetch_tags(container: &Container, registry: &Registry) -> Result<Vec<String>> {
+async fn fetch_tags(container: &Container) -> Result<Vec<String>> {
     let image_repository = &container.image;
     let scope = format!("repository:{image_repository}:pull");
-    let base = registry.base.as_deref().unwrap_or(DOCKER_HUB_REGISTRY);
 
-    let client = Client::configure()
-        .registry(base)
-        .username(registry.username.clone())
-        .password(registry.password.clone())
-        .build()?
-        .authenticate(&[&scope])
-        .await?;
+    let client = Client::configure().build()?.authenticate(&[&scope]).await?;
 
     tracing::debug!(%image_repository, "Fetching tags from the repository");
 
@@ -70,11 +61,8 @@ fn find_newer_tag(current_tag: &str, tags: &[String]) -> Result<Option<String>> 
 }
 
 #[tracing::instrument]
-pub async fn fetch_latest_tag(
-    container: &Container,
-    registry: &Registry,
-) -> Result<Option<String>> {
-    let tags = fetch_tags(container, registry).await?;
+pub async fn fetch_latest_tag(container: &Container) -> Result<Option<String>> {
+    let tags = fetch_tags(container).await?;
 
     let latest = tags
         .iter()

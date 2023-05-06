@@ -8,7 +8,6 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    pub registry: RegistryDetails,
     pub services: Vec<Service>,
     pub auxillary_services: Vec<AuxillaryService>,
 }
@@ -46,11 +45,4 @@ pub struct AuxillaryService {
     pub tag: String,
     pub port: u16,
     pub environment: Option<HashMap<String, String>>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct RegistryDetails {
-    pub endpoint: Option<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
 }

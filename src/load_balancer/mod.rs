@@ -9,7 +9,7 @@ use hyper::{Client, Server};
 use rand::prelude::{SeedableRng, SmallRng};
 use tokio::sync::Mutex;
 
-use crate::common::{Container, Registry};
+use crate::common::Container;
 use crate::config::Service;
 use crate::docker;
 
@@ -19,21 +19,18 @@ mod proxy;
 
 #[derive(Clone, Debug)]
 pub struct LoadBalancer {
-    registry: Arc<Registry>,
     service_map: Arc<ServiceMap>,
     client: Client<HttpConnector>,
     rng: Arc<Mutex<SmallRng>>,
 }
 
 impl LoadBalancer {
-    pub fn new(registry: Registry, service_map: ServiceMap) -> Self {
-        let registry = Arc::new(registry);
+    pub fn new(service_map: ServiceMap) -> Self {
         let service_map = Arc::new(service_map);
         let client = Client::new();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
 
         Self {
-            registry,
             service_map,
             client,
             rng,
@@ -71,8 +68,6 @@ impl LoadBalancer {
 
         // Spin up the auto-reloading functionality
         for service in self.service_map.keys() {
-            let registry = Arc::clone(&self.registry);
-
             let container = Container {
                 image: service.image.clone(),
                 target_port: service.port,
@@ -84,7 +79,7 @@ impl LoadBalancer {
 
             tokio::spawn(async move {
                 loop {
-                    match check_for_newer_images(&container, &registry, &current_tag).await {
+                    match check_for_newer_images(&container, &current_tag).await {
                         Ok(()) => unreachable!("Should never break out of the above function"),
                         Err(e) => {
                             tracing::warn!(error = ?e, "Encountered an error while checking for newer images");
@@ -102,17 +97,11 @@ impl LoadBalancer {
 }
 
 #[tracing::instrument]
-async fn check_for_newer_images(
-    container: &Container,
-    registry: &Registry,
-    current_tag: &str,
-) -> Result<()> {
+async fn check_for_newer_images(container: &Container, current_tag: &str) -> Result<()> {
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-        if let Some(tag) =
-            docker::registry::check_for_newer_tag(container, registry, current_tag).await?
-        {
+        if let Some(tag) = docker::registry::check_for_newer_tag(container, current_tag).await? {
             tracing::info!(%tag, "Found a new tag in the Docker registry");
 
             // Boot the new container
