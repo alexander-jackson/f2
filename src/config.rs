@@ -9,7 +9,7 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub services: Vec<Service>,
-    pub auxillary_services: Vec<AuxillaryService>,
+    pub auxillary_services: Option<Vec<AuxillaryService>>,
 }
 
 impl Config {
