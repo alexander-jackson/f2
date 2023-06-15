@@ -34,7 +34,9 @@ async fn main() -> Result<()> {
     let service_map = start_services(config.services).await?;
 
     // Start the auxillary services
-    start_auxillary_services(config.auxillary_services).await?;
+    if let Some(services) = config.auxillary_services {
+        start_auxillary_services(services).await?;
+    }
 
     let mut load_balancer = LoadBalancer::new(service_map);
     load_balancer.start_on_port(5000).await?;
