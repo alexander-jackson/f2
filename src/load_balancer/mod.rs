@@ -9,9 +9,7 @@ use hyper::{Client, Server};
 use rand::prelude::{SeedableRng, SmallRng};
 use tokio::sync::Mutex;
 
-use crate::common::Container;
 use crate::config::Service;
-use crate::docker;
 
 type ServiceMap = HashMap<Service, Vec<u16>>;
 
@@ -66,49 +64,10 @@ impl LoadBalancer {
             }
         });
 
-        // Spin up the auto-reloading functionality
-        for service in self.service_map.keys() {
-            let container = Container {
-                image: service.image.clone(),
-                target_port: service.port,
-                // TODO: this doesn't need this, the auto-reloading should take something different
-                environment: service.environment.clone(),
-            };
-
-            let current_tag = service.tag.clone();
-
-            tokio::spawn(async move {
-                loop {
-                    match check_for_newer_images(&container, &current_tag).await {
-                        Ok(()) => unreachable!("Should never break out of the above function"),
-                        Err(e) => {
-                            tracing::warn!(error = ?e, "Encountered an error while checking for newer images");
-                        }
-                    }
-                }
-            });
-        }
-
         let server = Server::from_tcp(listener)?.serve(service);
         server.await?;
 
         Ok(())
-    }
-}
-
-#[tracing::instrument]
-async fn check_for_newer_images(container: &Container, current_tag: &str) -> Result<()> {
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-        if let Some(tag) = docker::registry::check_for_newer_tag(container, current_tag).await? {
-            tracing::info!(%tag, "Found a new tag in the Docker registry");
-
-            // Boot the new container
-            let binding = docker::api::create_and_start_on_random_port(container, &tag).await?;
-
-            tracing::info!(%binding, "Started a new container with the new tag");
-        }
     }
 }
 
