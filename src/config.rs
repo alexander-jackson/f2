@@ -8,6 +8,7 @@ use crate::args::ConfigurationLocation;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    pub alb: AlbConfig,
     pub services: Vec<Service>,
     pub auxillary_services: Option<Vec<AuxillaryService>>,
 }
@@ -23,6 +24,12 @@ impl Config {
 
         Ok(config)
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct AlbConfig {
+    pub addr: String,
+    pub port: u16,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 use color_eyre::eyre::Result;
 
@@ -35,6 +37,10 @@ async fn main() -> Result<()> {
 
     let args = Args::parse()?;
     let config = Config::from_location(&args.config_location).await?;
+
+    let addr = Ipv4Addr::from_str(&config.alb.addr)?;
+    let port = config.alb.port;
+
     let service_map = start_services(config.services).await?;
 
     // Start the auxillary services
@@ -43,7 +49,7 @@ async fn main() -> Result<()> {
     }
 
     let mut load_balancer = LoadBalancer::new(service_map);
-    load_balancer.start_on_port(5000).await?;
+    load_balancer.start_on(addr, port).await?;
 
     Ok(())
 }
