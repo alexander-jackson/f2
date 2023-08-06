@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 
-use anyhow::{Context, Error, Result};
+use color_eyre::eyre::{ContextCompat, Result};
 use hyper::client::HttpConnector;
 use hyper::http::uri::PathAndQuery;
 use hyper::{Body, Client, Request, Response};
@@ -21,7 +21,7 @@ pub async fn handle_request(
     rng: Arc<Mutex<SmallRng>>,
     client: Client<HttpConnector>,
     mut req: Request<Body>,
-) -> Result<Response<Body>, Error> {
+) -> Result<Response<Body>> {
     let host = req
         .headers()
         .get(hyper::header::HOST)

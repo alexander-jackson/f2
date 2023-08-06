@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use color_eyre::eyre::{self, Result};
 use hyper::{Body, Method, Request, Uri};
 use hyperlocal::{UnixClientExt, UnixConnector};
 
@@ -55,7 +55,7 @@ impl Client {
         let mut response = self.client.request(request).await?;
 
         // Check the image actually exists on the remote
-        anyhow::ensure!(
+        eyre::ensure!(
             response.status().is_success(),
             "Failed to pull image {image}:{tag} from the remote, it may not exist",
         );

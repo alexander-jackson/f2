@@ -3,7 +3,7 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-use anyhow::Result;
+use color_eyre::eyre::{Context, Result};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -14,7 +14,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = File::open(path).wrap_err("Failed to find configuration file")?;
         let config = serde_yaml::from_reader(file)?;
 
         Ok(config)

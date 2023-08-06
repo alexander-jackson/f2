@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use color_eyre::eyre::Result;
 
 use crate::args::Args;
 use crate::common::Container;
@@ -14,7 +14,9 @@ mod config;
 mod docker;
 mod load_balancer;
 
-fn setup() {
+fn setup() -> Result<()> {
+    color_eyre::install()?;
+
     // Set `RUST_LOG` if not set
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info");
@@ -23,11 +25,13 @@ fn setup() {
     tracing_subscriber::fmt::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    setup();
+    setup()?;
 
     let args = Args::parse()?;
     let config = Config::from_file(args.get_config_path())?;

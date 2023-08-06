@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::sync::Arc;
 
-use anyhow::{Error, Result};
+use color_eyre::eyre::{Report, Result};
 use hyper::client::HttpConnector;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Client, Server};
@@ -53,7 +53,7 @@ impl LoadBalancer {
             let client = client.clone();
 
             async move {
-                Ok::<_, Error>(service_fn(move |req| {
+                Ok::<_, Report>(service_fn(move |req| {
                     proxy::handle_request(
                         Arc::clone(&service_map),
                         Arc::clone(&rng),
