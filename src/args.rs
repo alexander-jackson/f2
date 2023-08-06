@@ -48,7 +48,7 @@ impl TryFrom<pico_args::Arguments> for Args {
         let config_location = config
             .strip_prefix("s3://")
             .map(|bucket_and_key| {
-                let (bucket, key) = bucket_and_key.split_once("/").expect("Invalid S3 URI");
+                let (bucket, key) = bucket_and_key.split_once('/').expect("Invalid S3 URI");
 
                 ConfigurationLocation::S3 {
                     bucket: String::from(bucket),
