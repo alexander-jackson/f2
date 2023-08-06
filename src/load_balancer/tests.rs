@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 
-use anyhow::{Error, Result};
+use color_eyre::eyre::{Report, Result};
 use hyper::client::HttpConnector;
 use hyper::header::HOST;
 use hyper::service::{make_service_fn, service_fn};
@@ -40,7 +40,7 @@ async fn spawn_fixed_response_server(response: &'static str) -> Result<SocketAdd
 
     let service =
         make_service_fn(
-            move |_| async move { Ok::<_, Error>(service_fn(move |_| handler(response))) },
+            move |_| async move { Ok::<_, Report>(service_fn(move |_| handler(response))) },
         );
 
     let resolved_addr = listener.local_addr()?;
@@ -118,7 +118,7 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     let listener = TcpListener::bind(&addr)?;
 
     let service = make_service_fn(move |_| async move {
-        Ok::<_, Error>(service_fn(move |req| handle_health_checks(req)))
+        Ok::<_, Report>(service_fn(move |req| handle_health_checks(req)))
     });
 
     let resolved_addr = listener.local_addr()?;
