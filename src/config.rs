@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
 
 use color_eyre::eyre::{Context, Result};
 use serde::Deserialize;
+
+use crate::args::ConfigurationLocation;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -13,9 +13,13 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path).wrap_err("Failed to find configuration file")?;
-        let config = serde_yaml::from_reader(file)?;
+    pub async fn from_location(location: &ConfigurationLocation) -> Result<Self> {
+        let bytes = location
+            .fetch()
+            .await
+            .with_context(|| "Failed to fetch configuration")?;
+
+        let config = serde_yaml::from_slice(&bytes)?;
 
         Ok(config)
     }

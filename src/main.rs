@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     setup()?;
 
     let args = Args::parse()?;
-    let config = Config::from_file(args.get_config_path())?;
+    let config = Config::from_location(&args.config_location).await?;
     let service_map = start_services(config.services).await?;
 
     // Start the auxillary services
