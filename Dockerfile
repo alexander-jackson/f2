@@ -1,18 +1,13 @@
-FROM lukemathwalker/cargo-chef:latest-rust-latest AS chef
-WORKDIR app
+FROM rust:1.68.0-alpine3.17 AS builder
 
-FROM chef AS planner
-COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM chef AS builder
-COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+WORKDIR /app
 COPY . .
 
-RUN cargo build --release --bin f2
+RUN apk add --no-cache musl build-base
+RUN rustup target add x86_64-unknown-linux-musl
 
-FROM debian:buster-slim AS runtime
-WORKDIR app
-COPY --from=builder /app/target/release/f2 /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/f2"]
+RUN cargo install --target x86_64-unknown-linux-musl --path .
+
+FROM gcr.io/distroless/static
+COPY --from=builder /usr/local/cargo/bin/f2 .
+ENTRYPOINT ["./f2"]
