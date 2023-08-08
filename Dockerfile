@@ -26,5 +26,5 @@ RUN cargo build --release --target x86_64-unknown-linux-musl --bin f2
 
 # Copy over to the minimal image
 FROM gcr.io/distroless/static
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/f2 /usr/local/bin
-ENTRYPOINT ["/usr/local/bin/f2"]
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/f2 .
+ENTRYPOINT ["./f2"]
