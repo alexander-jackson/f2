@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 
 use color_eyre::eyre::Result;
@@ -54,8 +54,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn start_services(services: Vec<Service>) -> Result<HashMap<Service, Vec<u16>>> {
-    let mut service_map: HashMap<Service, Vec<u16>> = HashMap::new();
+async fn start_services(services: Vec<Service>) -> Result<HashMap<Service, Vec<SocketAddrV4>>> {
+    let mut service_map: HashMap<Service, Vec<SocketAddrV4>> = HashMap::new();
 
     for service in services {
         let tag = &service.tag;
@@ -63,8 +63,8 @@ async fn start_services(services: Vec<Service>) -> Result<HashMap<Service, Vec<u
         let mut ports = Vec::new();
 
         for _ in 0..service.replicas {
-            let port = create_and_start_on_random_port(&container, tag).await?;
-            ports.push(port);
+            let addr = create_and_start_on_random_port(&container, tag).await?;
+            ports.push(SocketAddrV4::new(*addr.ip(), container.target_port));
         }
 
         service_map.insert(service, ports);

@@ -9,6 +9,10 @@ use hyper::{Body, Client, Request, Response, Server, StatusCode};
 use crate::config::Service;
 use crate::load_balancer::LoadBalancer;
 
+fn local_addr(port: u16) -> SocketAddrV4 {
+    SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
+}
+
 fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix: T) -> Service {
     Service {
         image: String::from("account/application"),
@@ -82,11 +86,11 @@ async fn can_proxy_requests_based_on_host_header() -> Result<()> {
     let service_map = [
         (
             create_service("opentracker.app", None),
-            vec![opentracker_addr.port()],
+            vec![local_addr(opentracker_addr.port())],
         ),
         (
             create_service("blackboards.pl", None),
-            vec![blackboards_addr.port()],
+            vec![local_addr(blackboards_addr.port())],
         ),
     ]
     .into_iter()
@@ -131,9 +135,12 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
         server.await.expect("Failed to run server");
     });
 
-    let service_map = [(create_service(host, None), vec![resolved_addr.port()])]
-        .into_iter()
-        .collect();
+    let service_map = [(
+        create_service(host, None),
+        vec![local_addr(resolved_addr.port())],
+    )]
+    .into_iter()
+    .collect();
 
     let load_balancer_addr = spawn_load_balancer(service_map).await?;
 
@@ -183,8 +190,14 @@ async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
     // 2 services on the same host, different paths
     let host = "opentracker.app";
     let service_map = [
-        (create_service(host, None), vec![frontend_addr.port()]),
-        (create_service(host, "/api"), vec![backend_addr.port()]),
+        (
+            create_service(host, None),
+            vec![local_addr(frontend_addr.port())],
+        ),
+        (
+            create_service(host, "/api"),
+            vec![local_addr(backend_addr.port())],
+        ),
     ]
     .into_iter()
     .collect();
