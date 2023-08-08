@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::SocketAddrV4;
 
 use color_eyre::eyre::Result;
 
@@ -6,7 +7,10 @@ use crate::common::Container;
 use crate::docker::client::Client;
 
 #[tracing::instrument]
-pub async fn create_and_start_on_random_port(container: &Container, tag: &str) -> Result<u16> {
+pub async fn create_and_start_on_random_port(
+    container: &Container,
+    tag: &str,
+) -> Result<SocketAddrV4> {
     let client = Client::new("/var/run/docker.sock");
 
     // Ensure the image exists locally
@@ -28,14 +32,16 @@ pub async fn create_and_start_on_random_port(container: &Container, tag: &str) -
     tracing::info!(%id, %name, %target_port, "Created and started a container");
 
     // Get the container itself and the port details
-    let exposed_ports = client.get_exposed_ports(&id).await?;
-    let binding = *exposed_ports
+    let (addr, exposed_ports) = client.get_container_network_details(&id).await?;
+    let port = *exposed_ports
         .get(&target_port)
         .expect("Failed to find a port mapping");
 
-    tracing::info!(%container.image, %tag, %binding, "Found the binding for a container");
+    let socket_addr = SocketAddrV4::new(addr, port);
 
-    Ok(binding)
+    tracing::info!(%container.image, %tag, %socket_addr, "Found the binding for a container");
+
+    Ok(socket_addr)
 }
 
 async fn pull_image_if_needed(client: &Client, container: &Container, tag: &str) -> Result<()> {

@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use color_eyre::eyre::{ContextCompat, Result};
@@ -50,7 +50,7 @@ pub async fn handle_request(
             .context("Failed to select downstream host")?
     };
 
-    let downstream_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, downstream);
+    let downstream_addr = SocketAddrV4::new(*downstream.ip(), downstream.port());
     let path_and_query = uri.path_and_query().map_or("/", PathAndQuery::as_str);
 
     tracing::info!(%downstream_addr, %path_and_query, "Proxing request to a downstream server");

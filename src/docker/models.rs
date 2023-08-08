@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
 
@@ -47,5 +48,7 @@ pub struct InspectContainerResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct NetworkSettings {
+    #[serde(rename = "IPAddress")]
+    pub ip_address: Ipv4Addr,
     pub ports: HashMap<String, Option<Vec<PortBinding>>>,
 }

@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 use crate::config::Service;
 
-type ServiceMap = HashMap<Service, Vec<u16>>;
+type ServiceMap = HashMap<Service, Vec<SocketAddrV4>>;
 
 mod proxy;
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 
 use color_eyre::eyre::{self, Result};
 use hyper::{Body, Method, Request, Uri};
@@ -6,7 +7,7 @@ use hyperlocal::{UnixClientExt, UnixConnector};
 
 use crate::docker::models::{
     CreateContainerOptions, CreateContainerResponse, HostConfig, ImageSummary,
-    InspectContainerResponse, PortBinding,
+    InspectContainerResponse, NetworkSettings, PortBinding,
 };
 
 pub struct Client {
@@ -133,7 +134,10 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_exposed_ports(&self, id: &str) -> Result<HashMap<u16, u16>> {
+    pub async fn get_container_network_details(
+        &self,
+        id: &str,
+    ) -> Result<(Ipv4Addr, HashMap<u16, u16>)> {
         let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 
@@ -148,10 +152,10 @@ impl Client {
         let bytes = hyper::body::to_bytes(response.body_mut()).await?;
         let payload: InspectContainerResponse = serde_json::from_slice(&bytes)?;
 
+        let NetworkSettings { ip_address, ports } = payload.network_settings;
+
         // Find all the TCP exposed ports
-        let tcp_exposed_ports = payload
-            .network_settings
-            .ports
+        let tcp_exposed_ports = ports
             .iter()
             .filter_map(|(k, v)| {
                 k.strip_suffix("/tcp").and_then(|container_port| {
@@ -166,7 +170,7 @@ impl Client {
             })
             .collect();
 
-        Ok(tcp_exposed_ports)
+        Ok((ip_address, tcp_exposed_ports))
     }
 }
 
