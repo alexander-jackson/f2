@@ -6,8 +6,8 @@ use hyper::{Body, Method, Request, Uri};
 use hyperlocal::{UnixClientExt, UnixConnector};
 
 use crate::docker::models::{
-    CreateContainerOptions, CreateContainerResponse, HostConfig, ImageSummary,
-    InspectContainerResponse, NetworkSettings, PortBinding,
+    CreateContainerOptions, CreateContainerResponse, ImageSummary, InspectContainerResponse,
+    NetworkSettings,
 };
 
 pub struct Client {
@@ -70,32 +70,14 @@ impl Client {
     pub async fn create_container(
         &self,
         image: &str,
-        port_mapping: &HashMap<u16, u16>,
         environment: &Option<HashMap<String, String>>,
     ) -> Result<String> {
         let uri = self.build_uri("/containers/create");
-
-        let mut exposed_ports = HashMap::new();
-        let mut port_bindings = HashMap::new();
-
-        for (key, value) in port_mapping.iter() {
-            let port_and_protocol = format!("{key}/tcp");
-
-            let binding = PortBinding {
-                host_ip: None,
-                host_port: value.to_string(),
-            };
-
-            exposed_ports.insert(port_and_protocol.clone(), HashMap::new());
-            port_bindings.insert(port_and_protocol, vec![binding]);
-        }
 
         let env = format_environment_variables(environment);
 
         let options = CreateContainerOptions {
             image: String::from(image),
-            exposed_ports,
-            host_config: HostConfig { port_bindings },
             env,
         };
 
@@ -134,10 +116,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_container_network_details(
-        &self,
-        id: &str,
-    ) -> Result<(Ipv4Addr, HashMap<u16, u16>)> {
+    pub async fn get_container_ip(&self, id: &str) -> Result<Ipv4Addr> {
         let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 
@@ -152,25 +131,9 @@ impl Client {
         let bytes = hyper::body::to_bytes(response.body_mut()).await?;
         let payload: InspectContainerResponse = serde_json::from_slice(&bytes)?;
 
-        let NetworkSettings { ip_address, ports } = payload.network_settings;
+        let NetworkSettings { ip_address } = payload.network_settings;
 
-        // Find all the TCP exposed ports
-        let tcp_exposed_ports = ports
-            .iter()
-            .filter_map(|(k, v)| {
-                k.strip_suffix("/tcp").and_then(|container_port| {
-                    let bound = v.as_ref().and_then(|ports| {
-                        ports
-                            .first()
-                            .map(|binding| binding.host_port.parse().unwrap())
-                    })?;
-
-                    Some((container_port.parse().unwrap(), bound))
-                })
-            })
-            .collect();
-
-        Ok((ip_address, tcp_exposed_ports))
+        Ok(ip_address)
     }
 }
 

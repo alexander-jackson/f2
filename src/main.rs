@@ -7,7 +7,7 @@ use color_eyre::eyre::Result;
 use crate::args::Args;
 use crate::common::Container;
 use crate::config::{AuxillaryService, Config, Service};
-use crate::docker::api::create_and_start_on_random_port;
+use crate::docker::api::create_and_start_container;
 use crate::load_balancer::LoadBalancer;
 
 mod args;
@@ -63,8 +63,8 @@ async fn start_services(services: Vec<Service>) -> Result<HashMap<Service, Vec<S
         let mut ports = Vec::new();
 
         for _ in 0..service.replicas {
-            let addr = create_and_start_on_random_port(&container, tag).await?;
-            ports.push(SocketAddrV4::new(*addr.ip(), container.target_port));
+            let addr = create_and_start_container(&container, tag).await?;
+            ports.push(SocketAddrV4::new(addr, container.target_port));
         }
 
         service_map.insert(service, ports);
@@ -77,7 +77,7 @@ async fn start_auxillary_services(services: Vec<AuxillaryService>) -> Result<()>
     for service in services {
         let tag = &service.tag;
         let container = Container::from(&service);
-        let port = create_and_start_on_random_port(&container, tag).await?;
+        let port = create_and_start_container(&container, tag).await?;
 
         tracing::info!("Started {} on port {port}", service.image);
     }
