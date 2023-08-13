@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use color_eyre::eyre::{Context, Result};
+use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
 use crate::args::ConfigurationLocation;
+use crate::crypto::decrypt;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -24,6 +26,14 @@ impl Config {
 
         Ok(config)
     }
+
+    pub fn resolve_secrets(&mut self, key: &RsaPrivateKey) -> Result<()> {
+        for service in self.services.iter_mut() {
+            service.resolve_secrets(key)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -41,6 +51,24 @@ pub struct Service {
     pub host: String,
     pub path_prefix: Option<String>,
     pub environment: Option<HashMap<String, String>>,
+}
+
+impl Service {
+    pub fn resolve_secrets(&mut self, key: &RsaPrivateKey) -> Result<()> {
+        let Some(ref mut environment) = self.environment else { return Ok(()) };
+
+        for (config_key, value) in environment.iter_mut() {
+            tracing::info!("Resolving secret for {config_key}");
+
+            if let Some(rhs) = value.strip_prefix("secret:") {
+                *value = decrypt(rhs, key).wrap_err_with(|| {
+                    format!("Failed to decrypt secret value for '{config_key}'")
+                })?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Hash for Service {

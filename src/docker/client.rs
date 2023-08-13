@@ -81,7 +81,7 @@ impl Client {
             env,
         };
 
-        tracing::info!(?options, "Creating a container");
+        tracing::info!(%image, "Creating a container");
 
         let body = serde_json::to_vec(&options)?;
 

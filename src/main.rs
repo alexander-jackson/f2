@@ -13,6 +13,7 @@ use crate::load_balancer::LoadBalancer;
 mod args;
 mod common;
 mod config;
+mod crypto;
 mod docker;
 mod load_balancer;
 
@@ -36,7 +37,10 @@ async fn main() -> Result<()> {
     setup()?;
 
     let args = Args::parse()?;
-    let config = Config::from_location(&args.config_location).await?;
+    let mut config = Config::from_location(&args.config_location).await?;
+
+    let private_key = crypto::get_private_key("ENV_PRIVATE_KEY")?;
+    config.resolve_secrets(&private_key)?;
 
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
     let port = config.alb.port;

@@ -3,3 +3,4 @@ Dockerfile
 
 *.sh
 *.yaml
+.env
