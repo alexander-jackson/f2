@@ -1,12 +1,21 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use crate::config::{AuxillaryService, Service};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Container {
     pub image: String,
     pub target_port: u16,
     pub environment: Option<HashMap<String, String>>,
+}
+
+impl fmt::Debug for Container {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Container")
+            .field("image", &self.image)
+            .field("target_port", &self.target_port)
+            .finish()
+    }
 }
 
 impl From<&Service> for Container {

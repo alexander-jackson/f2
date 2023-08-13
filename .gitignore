@@ -2,3 +2,6 @@
 f2.yaml
 
 *.sh
+*.key
+.env
+Justfile
