@@ -5,3 +5,5 @@ f2.yaml
 *.key
 .env
 Justfile
+
+crypto/**
