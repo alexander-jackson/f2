@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
+use std::path::PathBuf;
 
 use color_eyre::eyre::{Report, Result};
 use hyper::client::HttpConnector;
@@ -6,8 +8,10 @@ use hyper::header::HOST;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server, StatusCode};
 
-use crate::config::Service;
+use crate::args::ConfigurationLocation;
+use crate::config::{AlbConfig, Config, Service};
 use crate::load_balancer::LoadBalancer;
+use crate::reconciler::Reconciler;
 
 fn local_addr(port: u16) -> SocketAddrV4 {
     SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
@@ -66,8 +70,27 @@ async fn spawn_load_balancer(service_map: super::ServiceMap) -> Result<SocketAdd
 
     let resolved_addr = listener.local_addr()?;
 
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
     tokio::spawn(async move {
-        let mut load_balancer = LoadBalancer::new(service_map);
+        let mut load_balancer = LoadBalancer::new(
+            service_map,
+            Reconciler::new(
+                "foobar",
+                ConfigurationLocation::Filesystem(PathBuf::new()),
+                Config {
+                    alb: AlbConfig {
+                        addr: String::from("127.0.0.1"),
+                        port: 5000,
+                        reconciliation: String::from("/reconciliation"),
+                    },
+                    services: HashMap::new(),
+                    auxillary_services: None,
+                },
+                tx,
+            ),
+            rx,
+        );
 
         load_balancer
             .start(listener)
