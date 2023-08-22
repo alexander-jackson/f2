@@ -31,7 +31,7 @@ impl Reconciler {
     }
 
     pub fn get_path(&self) -> &str {
-        &*self.alb_path
+        &self.alb_path
     }
 
     pub async fn reconcile(&self) -> Result<()> {
