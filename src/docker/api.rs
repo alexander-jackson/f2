@@ -6,7 +6,7 @@ use crate::common::Container;
 use crate::docker::client::Client;
 use crate::docker::models::ContainerId;
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct StartedContainerDetails {
     pub id: ContainerId,
     pub addr: Ipv4Addr,

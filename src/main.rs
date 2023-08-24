@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use service_registry::ServiceRegistry;
+use tokio::sync::RwLock;
 
 use crate::args::Args;
 use crate::common::Container;
@@ -57,16 +59,17 @@ async fn main() -> Result<()> {
         start_auxillary_services(services).await?;
     }
 
-    let (sender, receiver) = tokio::sync::mpsc::channel(100);
+    let service_registry = Arc::new(RwLock::new(service_registry));
+    let reconciliation_path = config.alb.reconciliation.clone();
 
     let reconciler = Reconciler::new(
-        &config.alb.reconciliation.clone(),
+        Arc::clone(&service_registry),
         args.config_location.clone(),
         config,
-        sender,
     );
 
-    let mut load_balancer = LoadBalancer::new(service_registry, reconciler, receiver);
+    let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
+
     load_balancer.start_on(addr, port).await?;
 
     Ok(())

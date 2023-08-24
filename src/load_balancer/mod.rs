@@ -6,12 +6,8 @@ use hyper::client::HttpConnector;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Client, Server};
 use rand::prelude::{SeedableRng, SmallRng};
-use tokio::sync::mpsc::Receiver;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::common::Container;
-use crate::config::Diff;
-use crate::docker::api::create_and_start_container;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
@@ -22,28 +18,27 @@ pub struct LoadBalancer {
     service_registry: Arc<RwLock<ServiceRegistry>>,
     client: Client<HttpConnector>,
     rng: Arc<Mutex<SmallRng>>,
+    reconciler_path: Arc<str>,
     reconciler: Arc<Reconciler>,
-    receiver: Arc<Mutex<Receiver<Diff>>>,
 }
 
 impl LoadBalancer {
     pub fn new(
-        service_registry: ServiceRegistry,
+        service_registry: Arc<RwLock<ServiceRegistry>>,
+        reconciler_path: &str,
         reconciler: Reconciler,
-        receiver: Receiver<Diff>,
     ) -> Self {
-        let service_registry = Arc::new(RwLock::new(service_registry));
         let client = Client::new();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
+        let reconciler_path = Arc::from(reconciler_path);
         let reconciler = Arc::new(reconciler);
-        let receiver = Arc::new(Mutex::new(receiver));
 
         Self {
             service_registry,
             client,
             rng,
+            reconciler_path,
             reconciler,
-            receiver,
         }
     }
 
@@ -58,12 +53,14 @@ impl LoadBalancer {
         let service_registry = Arc::clone(&self.service_registry);
         let rng = Arc::clone(&self.rng);
         let client = self.client.clone();
+        let reconciliation_path = Arc::clone(&self.reconciler_path);
         let reconciler = Arc::clone(&self.reconciler);
 
         let service = make_service_fn(move |_| {
             let service_registry = Arc::clone(&service_registry);
             let rng = Arc::clone(&rng);
             let client = client.clone();
+            let reconciliation_path = Arc::clone(&reconciliation_path);
             let reconciler = Arc::clone(&reconciler);
 
             async move {
@@ -72,41 +69,11 @@ impl LoadBalancer {
                         Arc::clone(&service_registry),
                         Arc::clone(&rng),
                         client.clone(),
+                        Arc::clone(&reconciliation_path),
                         Arc::clone(&reconciler),
                         req,
                     )
                 }))
-            }
-        });
-
-        let receiver = Arc::clone(&self.receiver);
-        let service_map = Arc::clone(&self.service_registry);
-
-        tokio::spawn(async move {
-            loop {
-                let mut lock = receiver.lock().await;
-
-                if let Some(diff) = lock.recv().await {
-                    tracing::info!("Got a diff from the reconciler: {diff:?}");
-
-                    // Apply the change
-                    match diff {
-                        Diff::TagUpdate { name, value } => {
-                            let read_lock = service_map.read().await;
-                            let definition = read_lock.get_definition(&name).unwrap();
-
-                            let container = Container::from(definition);
-                            drop(read_lock);
-
-                            let details = create_and_start_container(&container, &value)
-                                .await
-                                .unwrap();
-
-                            let mut write_lock = service_map.write().await;
-                            write_lock.add_container(&name, details);
-                        }
-                    }
-                }
             }
         });
 
