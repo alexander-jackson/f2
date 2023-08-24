@@ -15,13 +15,14 @@ pub async fn handle_request(
     service_registry: Arc<RwLock<ServiceRegistry>>,
     rng: Arc<Mutex<SmallRng>>,
     client: Client<HttpConnector>,
+    reconciliation_path: Arc<str>,
     reconciler: Arc<Reconciler>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>> {
     let uri = req.uri();
 
     if let Some(path_and_query) = uri.path_and_query() {
-        if path_and_query.path() == reconciler.get_path() {
+        if path_and_query.path() == &*reconciliation_path {
             reconciler.reconcile().await?;
             return Ok(Response::builder().status(200).body(Body::empty())?);
         }

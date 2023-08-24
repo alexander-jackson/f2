@@ -1,37 +1,34 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use color_eyre::Result;
-use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
+use crate::common::Container;
 use crate::config::{Config, Diff};
+use crate::docker::api::create_and_start_container;
+use crate::docker::client::Client;
+use crate::service_registry::ServiceRegistry;
 
 #[derive(Debug, Clone)]
 pub struct Reconciler {
-    alb_path: Arc<str>,
+    registry: Arc<RwLock<ServiceRegistry>>,
     config_location: Arc<ConfigurationLocation>,
     config: Arc<RwLock<Config>>,
-    sender: Sender<Diff>,
 }
 
 impl Reconciler {
     pub fn new(
-        alb_path: &str,
+        registry: Arc<RwLock<ServiceRegistry>>,
         config_location: ConfigurationLocation,
         config: Config,
-        sender: Sender<Diff>,
     ) -> Self {
         Self {
-            alb_path: Arc::from(alb_path),
+            registry,
             config_location: Arc::new(config_location),
             config: Arc::new(RwLock::new(config)),
-            sender,
         }
-    }
-
-    pub fn get_path(&self) -> &str {
-        &self.alb_path
     }
 
     pub async fn reconcile(&self) -> Result<()> {
@@ -50,7 +47,35 @@ impl Reconciler {
             drop(write_lock);
 
             for event in diff {
-                self.sender.send(event).await?;
+                self.handle_diff(event).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_diff(&self, diff: Diff) -> Result<()> {
+        match diff {
+            Diff::TagUpdate { name, value } => {
+                let read_lock = self.registry.read().await;
+                let definition = read_lock.get_definition(&name).unwrap();
+                let running_containers: HashSet<_> =
+                    read_lock.get_running_containers(&name).unwrap().clone();
+
+                let container = Container::from(definition);
+                drop(read_lock);
+
+                let details = create_and_start_container(&container, &value)
+                    .await
+                    .unwrap();
+
+                self.registry.write().await.add_container(&name, details);
+
+                // Delete the previously running containers
+                for details in running_containers {
+                    let client = Client::new("/var/run/docker.sock");
+                    client.remove_container(&details.id).await?;
+                }
             }
         }
 

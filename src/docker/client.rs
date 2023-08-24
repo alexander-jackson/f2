@@ -137,6 +137,22 @@ impl Client {
 
         Ok(ip_address)
     }
+
+    pub async fn remove_container(&self, id: &ContainerId) -> Result<()> {
+        let path = format!("/containers/{id}?force=true");
+        let uri = self.build_uri(&path);
+
+        tracing::info!(%id, "Removing a container forcefully");
+
+        let request = Request::builder()
+            .uri(uri)
+            .method(Method::DELETE)
+            .body(Body::empty())?;
+
+        self.client.request(request).await?;
+
+        Ok(())
+    }
 }
 
 fn format_environment_variables(environment: &Option<HashMap<String, String>>) -> Vec<String> {

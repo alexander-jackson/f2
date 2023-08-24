@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use color_eyre::eyre::{Report, Result};
 use hyper::client::HttpConnector;
 use hyper::header::HOST;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server, StatusCode};
+use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
 use crate::config::{AlbConfig, Config, Service};
@@ -81,14 +83,14 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
     let listener = TcpListener::bind(&addr)?;
 
     let resolved_addr = listener.local_addr()?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
+    let service_registry = Arc::new(RwLock::new(service_registry));
 
     tokio::spawn(async move {
         let mut load_balancer = LoadBalancer::new(
-            service_registry,
+            Arc::clone(&service_registry),
+            "/reconciliation",
             Reconciler::new(
-                "foobar",
+                Arc::clone(&service_registry),
                 ConfigurationLocation::Filesystem(PathBuf::new()),
                 Config {
                     alb: AlbConfig {
@@ -99,9 +101,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                     services: HashMap::new(),
                     auxillary_services: None,
                 },
-                tx,
             ),
-            rx,
         );
 
         load_balancer
