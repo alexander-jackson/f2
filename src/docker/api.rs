@@ -4,10 +4,11 @@ use color_eyre::eyre::Result;
 
 use crate::common::Container;
 use crate::docker::client::Client;
+use crate::docker::models::ContainerId;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct StartedContainerDetails {
-    pub id: String,
+    pub id: ContainerId,
     pub addr: Ipv4Addr,
 }
 

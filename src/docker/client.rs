@@ -10,6 +10,8 @@ use crate::docker::models::{
     NetworkSettings,
 };
 
+use super::models::ContainerId;
+
 pub struct Client {
     client: hyper::Client<UnixConnector, Body>,
     base: String,
@@ -71,7 +73,7 @@ impl Client {
         &self,
         image: &str,
         environment: &Option<HashMap<String, String>>,
-    ) -> Result<String> {
+    ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
 
         let env = format_environment_variables(environment);
@@ -100,7 +102,7 @@ impl Client {
         Ok(body.id)
     }
 
-    pub async fn start_container(&self, id: &str) -> Result<()> {
+    pub async fn start_container(&self, id: &ContainerId) -> Result<()> {
         let path = format!("/containers/{id}/start");
         let uri = self.build_uri(&path);
 
@@ -116,7 +118,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_container_ip(&self, id: &str) -> Result<Ipv4Addr> {
+    pub async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr> {
         let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 

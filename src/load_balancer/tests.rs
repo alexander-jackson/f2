@@ -11,6 +11,7 @@ use hyper::{Body, Client, Request, Response, Server, StatusCode};
 use crate::args::ConfigurationLocation;
 use crate::config::{AlbConfig, Config, Service};
 use crate::docker::api::StartedContainerDetails;
+use crate::docker::models::ContainerId;
 use crate::load_balancer::LoadBalancer;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
@@ -33,7 +34,7 @@ fn create_service<T: Into<Option<&'static str>>>(
 
 fn add_container(service_registry: &mut ServiceRegistry, name: &str) {
     let details = StartedContainerDetails {
-        id: String::from("6cd915f16ab3"),
+        id: ContainerId(String::from("6cd915f16ab3")),
         addr: Ipv4Addr::LOCALHOST,
     };
 

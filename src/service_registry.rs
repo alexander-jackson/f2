@@ -70,9 +70,21 @@ mod tests {
     use std::collections::HashSet;
     use std::net::Ipv4Addr;
 
+    use rand::rngs::ThreadRng;
+    use rand::RngCore;
+
     use crate::config::Service;
     use crate::docker::api::StartedContainerDetails;
+    use crate::docker::models::ContainerId;
     use crate::service_registry::ServiceRegistry;
+
+    fn random_container_id() -> ContainerId {
+        let mut rng = ThreadRng::default();
+        let mut buf: [u8; 6] = [0; 6];
+        rng.fill_bytes(buf.as_mut_slice());
+
+        ContainerId(hex::encode(buf))
+    }
 
     #[test]
     fn can_store_and_fetch_service_definitions() {
@@ -100,8 +112,8 @@ mod tests {
     fn can_store_and_fetch_container_data() {
         let mut registry = ServiceRegistry::new();
 
-        let container1 = String::from("93ec72c15c4e");
-        let container2 = String::from("e13572c97016");
+        let container1 = random_container_id();
+        let container2 = random_container_id();
 
         let first = StartedContainerDetails {
             id: container1.clone(),
@@ -152,20 +164,24 @@ mod tests {
         registry.define(name, service);
     }
 
-    fn add_container(registry: &mut ServiceRegistry, name: &str, id: &str) {
+    fn add_container(registry: &mut ServiceRegistry, name: &str) -> ContainerId {
+        let id = random_container_id();
+
         let details = StartedContainerDetails {
-            id: id.into(),
+            id: id.clone(),
             addr: Ipv4Addr::LOCALHOST,
         };
 
         registry.add_container(name, details);
+
+        id
     }
 
     fn find_matching_container_ids(
         registry: &ServiceRegistry,
         host: &str,
         path: &str,
-    ) -> Option<HashSet<String>> {
+    ) -> Option<HashSet<ContainerId>> {
         registry.find_downstreams(host, path).map(|value| {
             value
                 .0
@@ -179,19 +195,16 @@ mod tests {
     fn can_find_downstreams_for_host_and_path_with_one_host_match() {
         let mut registry = ServiceRegistry::new();
 
-        let opentracker_id = "484d37787d6b";
-        let blackboards_id = "8486d4541bcc";
-
         define_service(&mut registry, "opentracker", "opentracker.app", None);
         define_service(&mut registry, "blackboards", "blackboards.pl", None);
 
-        add_container(&mut registry, "opentracker", opentracker_id);
-        add_container(&mut registry, "blackboards", blackboards_id);
+        let opentracker_id = add_container(&mut registry, "opentracker");
+        add_container(&mut registry, "blackboards");
 
         let downstreams = find_matching_container_ids(&registry, "opentracker.app", "/foo");
 
         let mut expected = HashSet::new();
-        expected.insert(opentracker_id.to_string());
+        expected.insert(opentracker_id.clone());
 
         assert_eq!(downstreams, Some(expected));
     }
@@ -200,20 +213,18 @@ mod tests {
     fn can_find_downstreams_for_a_host_and_path_with_multiple_host_matches() {
         let mut registry = ServiceRegistry::new();
 
-        let frontend_id = "e759bdc85642";
-        let backend_id = "aff6452c2f74";
         let host = "example.com";
 
         define_service(&mut registry, "frontend", host, None);
         define_service(&mut registry, "backend", host, Some("/api".into()));
 
-        add_container(&mut registry, "frontend", frontend_id);
-        add_container(&mut registry, "backend", backend_id);
+        add_container(&mut registry, "frontend");
+        let backend_id = add_container(&mut registry, "backend");
 
         let downstreams = find_matching_container_ids(&registry, host, "/api/v1/accounts");
 
         let mut expected = HashSet::new();
-        expected.insert(backend_id.to_string());
+        expected.insert(backend_id);
 
         assert_eq!(downstreams, Some(expected));
     }
@@ -222,14 +233,11 @@ mod tests {
     fn produces_no_results_for_downstreams_if_no_matches() {
         let mut registry = ServiceRegistry::new();
 
-        let frontend_id = "43b5e40cabe9";
-        let backend_id = "8bdffa0ee9bf";
-
         define_service(&mut registry, "frontend", "foo.com", None);
         define_service(&mut registry, "backend", "bar.com", None);
 
-        add_container(&mut registry, "frontend", frontend_id);
-        add_container(&mut registry, "backend", backend_id);
+        add_container(&mut registry, "frontend");
+        add_container(&mut registry, "backend");
 
         let downstreams = find_matching_container_ids(&registry, "baz.com", "/boo");
 
