@@ -5,8 +5,17 @@ use color_eyre::eyre::Result;
 use crate::common::Container;
 use crate::docker::client::Client;
 
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub struct StartedContainerDetails {
+    pub id: String,
+    pub addr: Ipv4Addr,
+}
+
 #[tracing::instrument]
-pub async fn create_and_start_container(container: &Container, tag: &str) -> Result<Ipv4Addr> {
+pub async fn create_and_start_container(
+    container: &Container,
+    tag: &str,
+) -> Result<StartedContainerDetails> {
     let client = Client::new("/var/run/docker.sock");
 
     // Ensure the image exists locally
@@ -27,9 +36,9 @@ pub async fn create_and_start_container(container: &Container, tag: &str) -> Res
     // Get the container itself and the port details
     let addr = client.get_container_ip(&id).await?;
 
-    tracing::info!(%container.image, %tag, %addr, "Started a container and got the IP address");
+    tracing::info!(%container.image, %tag, %id, %addr, "Started a container and got the IP address");
 
-    Ok(addr)
+    Ok(StartedContainerDetails { id, addr })
 }
 
 async fn pull_image_if_needed(client: &Client, container: &Container, tag: &str) -> Result<()> {

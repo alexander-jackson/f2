@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 use color_eyre::eyre::Result;
+use service_registry::ServiceRegistry;
 
 use crate::args::Args;
 use crate::common::Container;
@@ -18,6 +19,7 @@ mod crypto;
 mod docker;
 mod load_balancer;
 mod reconciler;
+mod service_registry;
 
 fn setup() -> Result<()> {
     color_eyre::install()?;
@@ -47,7 +49,8 @@ async fn main() -> Result<()> {
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
     let port = config.alb.port;
 
-    let service_map = start_services(&config.services).await?;
+    let mut service_registry = ServiceRegistry::new();
+    start_services(&config.services, &mut service_registry).await?;
 
     // Start the auxillary services
     if let Some(services) = &config.auxillary_services {
@@ -63,7 +66,7 @@ async fn main() -> Result<()> {
         sender,
     );
 
-    let mut load_balancer = LoadBalancer::new(service_map, reconciler, receiver);
+    let mut load_balancer = LoadBalancer::new(service_registry, reconciler, receiver);
     load_balancer.start_on(addr, port).await?;
 
     Ok(())
@@ -71,34 +74,32 @@ async fn main() -> Result<()> {
 
 async fn start_services(
     services: &HashMap<String, Service>,
-) -> Result<HashMap<Service, Vec<SocketAddrV4>>> {
-    let mut service_map: HashMap<Service, Vec<SocketAddrV4>> = HashMap::new();
-
+    service_registry: &mut ServiceRegistry,
+) -> Result<()> {
     for (name, service) in services {
+        service_registry.define(name, service.clone());
+
         let tag = &service.tag;
         let container = Container::from(service);
-        let mut ports = Vec::new();
 
         tracing::info!("Starting {name} with tag {tag}");
 
         for _ in 0..service.replicas {
-            let addr = create_and_start_container(&container, tag).await?;
-            ports.push(SocketAddrV4::new(addr, container.target_port));
+            let details = create_and_start_container(&container, tag).await?;
+            service_registry.add_container(name, details);
         }
-
-        service_map.insert(service.clone(), ports);
     }
 
-    Ok(service_map)
+    Ok(())
 }
 
 async fn start_auxillary_services(services: &[AuxillaryService]) -> Result<()> {
     for service in services {
         let tag = &service.tag;
         let container = Container::from(&service.clone());
-        let port = create_and_start_container(&container, tag).await?;
+        let details = create_and_start_container(&container, tag).await?;
 
-        tracing::info!("Started {} on port {port}", service.image);
+        tracing::info!("Started {} on port {}", service.image, details.addr);
     }
 
     Ok(())
