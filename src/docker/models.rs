@@ -1,6 +1,16 @@
+use std::fmt;
 use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
+pub struct ContainerId(pub String);
+
+impl fmt::Display for ContainerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -18,7 +28,7 @@ pub struct CreateContainerOptions {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct CreateContainerResponse {
-    pub id: String,
+    pub id: ContainerId,
 }
 
 #[derive(Debug, Deserialize)]

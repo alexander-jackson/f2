@@ -692,6 +692,7 @@ dependencies = [
  "chrono",
  "color-eyre",
  "futures",
+ "hex",
  "hyper",
  "hyperlocal",
  "pico-args",
