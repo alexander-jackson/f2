@@ -10,23 +10,34 @@ use hyper::{Body, Client, Request, Response, Server, StatusCode};
 
 use crate::args::ConfigurationLocation;
 use crate::config::{AlbConfig, Config, Service};
+use crate::docker::api::StartedContainerDetails;
 use crate::load_balancer::LoadBalancer;
 use crate::reconciler::Reconciler;
+use crate::service_registry::ServiceRegistry;
 
-fn local_addr(port: u16) -> SocketAddrV4 {
-    SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
-}
-
-fn create_service<T: Into<Option<&'static str>>>(host: &'static str, path_prefix: T) -> Service {
+fn create_service<T: Into<Option<&'static str>>>(
+    host: &'static str,
+    port: u16,
+    path_prefix: T,
+) -> Service {
     Service {
         image: String::from("account/application"),
         tag: String::from("20220813-1803"),
-        port: 6500,
+        port,
         replicas: 1,
         host: String::from(host),
         path_prefix: path_prefix.into().map(ToOwned::to_owned),
         environment: None,
     }
+}
+
+fn add_container(service_registry: &mut ServiceRegistry, name: &str) {
+    let details = StartedContainerDetails {
+        id: String::from("6cd915f16ab3"),
+        addr: Ipv4Addr::LOCALHOST,
+    };
+
+    service_registry.add_container(name, details);
 }
 
 async fn handler(response: &'static str) -> Result<Response<Body>> {
@@ -64,7 +75,7 @@ async fn spawn_fixed_response_server(response: &'static str) -> Result<SocketAdd
     Ok(resolved_addr)
 }
 
-async fn spawn_load_balancer(service_map: super::ServiceMap) -> Result<SocketAddr> {
+async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<SocketAddr> {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
     let listener = TcpListener::bind(&addr)?;
 
@@ -74,7 +85,7 @@ async fn spawn_load_balancer(service_map: super::ServiceMap) -> Result<SocketAdd
 
     tokio::spawn(async move {
         let mut load_balancer = LoadBalancer::new(
-            service_map,
+            service_registry,
             Reconciler::new(
                 "foobar",
                 ConfigurationLocation::Filesystem(PathBuf::new()),
@@ -106,20 +117,22 @@ async fn can_proxy_requests_based_on_host_header() -> Result<()> {
     let opentracker_addr = spawn_fixed_response_server("Hello from OpenTracker").await?;
     let blackboards_addr = spawn_fixed_response_server("Hello from Blackboards").await?;
 
-    let service_map = [
-        (
-            create_service("opentracker.app", None),
-            vec![local_addr(opentracker_addr.port())],
-        ),
-        (
-            create_service("blackboards.pl", None),
-            vec![local_addr(blackboards_addr.port())],
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let mut service_registry = ServiceRegistry::new();
 
-    let load_balancer_addr = spawn_load_balancer(service_map).await?;
+    service_registry.define(
+        "opentracker",
+        create_service("opentracker.app", opentracker_addr.port(), None),
+    );
+
+    service_registry.define(
+        "blackboards",
+        create_service("blackboards.pl", blackboards_addr.port(), None),
+    );
+
+    add_container(&mut service_registry, "opentracker");
+    add_container(&mut service_registry, "blackboards");
+
+    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
     let client = Client::new();
 
@@ -158,14 +171,12 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
         server.await.expect("Failed to run server");
     });
 
-    let service_map = [(
-        create_service(host, None),
-        vec![local_addr(resolved_addr.port())],
-    )]
-    .into_iter()
-    .collect();
+    let mut service_registry = ServiceRegistry::new();
 
-    let load_balancer_addr = spawn_load_balancer(service_map).await?;
+    service_registry.define("service", create_service(host, resolved_addr.port(), None));
+    add_container(&mut service_registry, "service");
+
+    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
     let client = Client::new();
 
@@ -194,6 +205,8 @@ async fn get_response_body(
     client: &Client<HttpConnector>,
     request: Request<Body>,
 ) -> Result<String> {
+    dbg!(&request);
+
     let mut response = client.request(request).await?;
     let body = response.body_mut();
     let bytes = hyper::body::to_bytes(body).await?;
@@ -212,20 +225,15 @@ async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
 
     // 2 services on the same host, different paths
     let host = "opentracker.app";
-    let service_map = [
-        (
-            create_service(host, None),
-            vec![local_addr(frontend_addr.port())],
-        ),
-        (
-            create_service(host, "/api"),
-            vec![local_addr(backend_addr.port())],
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let mut service_registry = ServiceRegistry::new();
 
-    let load_balancer_addr = spawn_load_balancer(service_map).await?;
+    service_registry.define("frontend", create_service(host, frontend_addr.port(), None));
+    service_registry.define("backend", create_service(host, backend_addr.port(), "/api"));
+
+    add_container(&mut service_registry, "frontend");
+    add_container(&mut service_registry, "backend");
+
+    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
     let client = Client::new();
 

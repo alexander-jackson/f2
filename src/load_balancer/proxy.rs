@@ -8,17 +8,11 @@ use hyper::{Body, Client, Request, Response};
 use rand::prelude::{SliceRandom, SmallRng};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::load_balancer::ServiceMap;
 use crate::reconciler::Reconciler;
-
-fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
-    let Some(prefix) = prefix else { return path.len() };
-
-    path.strip_prefix(prefix).map_or(usize::MAX, str::len)
-}
+use crate::service_registry::ServiceRegistry;
 
 pub async fn handle_request(
-    service_map: Arc<RwLock<ServiceMap>>,
+    service_registry: Arc<RwLock<ServiceRegistry>>,
     rng: Arc<Mutex<SmallRng>>,
     client: Client<HttpConnector>,
     reconciler: Arc<Reconciler>,
@@ -40,34 +34,36 @@ pub async fn handle_request(
         .to_str()?;
 
     // Filter based on the host, then do path matching for longest length
-    let read_lock = service_map.read().await;
-    let downstreams = read_lock
-        .iter()
-        .filter(|entry| entry.0.host == host)
-        .min_by_key(|entry| compute_path_prefix_match(uri.path(), entry.0.path_prefix.as_deref()))
-        .map(|entry| entry.1);
+    let read_lock = service_registry.read().await;
+    let downstreams = read_lock.find_downstreams(host, uri.path());
 
     let Some(downstreams) = downstreams else {
         let response = Response::builder().status(404).body(Body::empty())?;
         return Ok(response);
     };
 
+    let (downstreams, port) = downstreams;
+
     let downstream = {
         let mut rng = rng.lock().await;
 
-        *downstreams
+        // TODO: remove this
+        let downstreams: Vec<_> = downstreams.iter().collect();
+
+        downstreams
             .choose(&mut *rng)
             .context("Failed to select downstream host")?
+            .addr
     };
 
     drop(read_lock);
 
-    let downstream_addr = SocketAddrV4::new(*downstream.ip(), downstream.port());
     let path_and_query = uri.path_and_query().map_or("/", PathAndQuery::as_str);
 
-    tracing::info!(%downstream_addr, %path_and_query, "Proxing request to a downstream server");
+    tracing::info!(%downstream, %path_and_query, "Proxing request to a downstream server");
 
-    *req.uri_mut() = format!("http://{downstream_addr}{path_and_query}").parse()?;
+    let addr = SocketAddrV4::new(downstream, port);
+    *req.uri_mut() = format!("http://{addr}{path_and_query}").parse()?;
 
     Ok(client.request(req).await?)
 }

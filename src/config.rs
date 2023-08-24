@@ -10,7 +10,7 @@ use crate::crypto::decrypt;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Diff {
-    TagUpdate { image: String, value: String },
+    TagUpdate { name: String, value: String },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -49,7 +49,7 @@ impl Config {
                 // Check for tag updates
                 if service.tag != definition.tag {
                     diff.push(Diff::TagUpdate {
-                        image: definition.image.to_owned(),
+                        name: name.to_owned(),
                         value: definition.tag.to_owned(),
                     });
                 }
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(
             diff,
             Some(vec![Diff::TagUpdate {
-                image: String::from("org/backend"),
+                name: String::from("backend"),
                 value: String::from("2")
             }])
         );
