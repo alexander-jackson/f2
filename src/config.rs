@@ -83,7 +83,9 @@ pub struct Service {
 
 impl Service {
     pub fn resolve_secrets(&mut self, key: &RsaPrivateKey) -> Result<()> {
-        let Some(ref mut environment) = self.environment else { return Ok(()) };
+        let Some(ref mut environment) = self.environment else {
+            return Ok(());
+        };
 
         for (config_key, value) in environment.iter_mut() {
             tracing::info!("Resolving secret for {config_key}");

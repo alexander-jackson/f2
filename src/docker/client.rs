@@ -156,7 +156,9 @@ impl Client {
 }
 
 fn format_environment_variables(environment: &Option<HashMap<String, String>>) -> Vec<String> {
-    let Some(environment) = environment else { return Vec::new() };
+    let Some(environment) = environment else {
+        return Vec::new();
+    };
 
     environment
         .iter()

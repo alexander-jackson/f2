@@ -4,7 +4,9 @@ use crate::config::Service;
 use crate::docker::api::StartedContainerDetails;
 
 fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
-    let Some(prefix) = prefix else { return path.len() };
+    let Some(prefix) = prefix else {
+        return path.len();
+    };
 
     path.strip_prefix(prefix).map_or(usize::MAX, str::len)
 }
