@@ -59,20 +59,27 @@ impl Reconciler {
             Diff::TagUpdate { name, value } => {
                 let read_lock = self.registry.read().await;
                 let definition = read_lock.get_definition(&name).unwrap();
+                let replicas = definition.replicas;
                 let running_containers: HashSet<_> =
                     read_lock.get_running_containers(&name).unwrap().clone();
 
                 let container = Container::from(definition);
                 drop(read_lock);
 
-                let details = create_and_start_container(&container, &value)
-                    .await
-                    .unwrap();
+                // Keep the locks short, create everything then add to the LB
+                let mut started_containers = Vec::new();
+
+                for _ in 0..replicas {
+                    let details = create_and_start_container(&container, &value).await?;
+
+                    started_containers.push(details);
+                }
 
                 let mut write_lock = self.registry.write().await;
 
-                // Add the new container, remove the older ones
-                write_lock.add_container(&name, details);
+                started_containers
+                    .into_iter()
+                    .for_each(|details| write_lock.add_container(&name, details));
 
                 for details in &running_containers {
                     write_lock.remove_container_by_id(&name, &details.id);
