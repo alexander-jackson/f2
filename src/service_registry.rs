@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::config::Service;
 use crate::docker::api::StartedContainerDetails;
+use crate::docker::models::ContainerId;
 
 fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
     let Some(prefix) = prefix else {
@@ -49,6 +50,12 @@ impl ServiceRegistry {
             .entry(service.to_string())
             .or_default()
             .insert(details);
+    }
+
+    pub fn remove_container_by_id(&mut self, service: &str, id: &ContainerId) {
+        if let Some(containers) = self.containers.get_mut(service) {
+            containers.retain(|c| c.id != *id);
+        }
     }
 
     pub fn find_downstreams(
@@ -244,5 +251,28 @@ mod tests {
         let downstreams = find_matching_container_ids(&registry, "baz.com", "/boo");
 
         assert_eq!(downstreams, None);
+    }
+
+    #[test]
+    fn can_remove_container_by_identifier() {
+        let mut registry = ServiceRegistry::new();
+        let name = "foobar";
+
+        define_service(&mut registry, name, "foo.bar", None);
+
+        let container1 = add_container(&mut registry, name);
+        let container2 = add_container(&mut registry, name);
+
+        registry.remove_container_by_id(name, &container1);
+
+        let running_containers = registry
+            .get_running_containers(name)
+            .expect("Failed to find containers");
+
+        let container1 = running_containers.iter().find(|c| c.id == container1);
+        let container2 = running_containers.iter().find(|c| c.id == container2);
+
+        assert!(container1.is_none());
+        assert!(container2.is_some());
     }
 }

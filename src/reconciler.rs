@@ -69,10 +69,19 @@ impl Reconciler {
                     .await
                     .unwrap();
 
-                self.registry.write().await.add_container(&name, details);
+                let mut write_lock = self.registry.write().await;
+
+                // Add the new container, remove the older ones
+                write_lock.add_container(&name, details);
+
+                for details in &running_containers {
+                    write_lock.remove_container_by_id(&name, &details.id);
+                }
+
+                drop(write_lock);
 
                 // Delete the previously running containers
-                for details in running_containers {
+                for details in &running_containers {
                     let client = Client::new("/var/run/docker.sock");
                     client.remove_container(&details.id).await?;
                 }
