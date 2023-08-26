@@ -32,6 +32,16 @@ impl ServiceRegistry {
         self.definitions.insert(service.to_string(), definition);
     }
 
+    pub fn undefine(&mut self, service: &str) {
+        self.definitions.remove(service);
+    }
+
+    pub fn update_tag(&mut self, service: &str, tag: &str) {
+        if let Some(definition) = self.definitions.get_mut(service) {
+            definition.tag = tag.into();
+        }
+    }
+
     pub fn get_running_containers(
         &self,
         service: &str,
@@ -50,6 +60,10 @@ impl ServiceRegistry {
             .entry(service.to_string())
             .or_default()
             .insert(details);
+    }
+
+    pub fn remove_all_containers(&mut self, service: &str) {
+        self.containers.remove(service);
     }
 
     pub fn remove_container_by_id(&mut self, service: &str, id: &ContainerId) {
@@ -95,6 +109,18 @@ mod tests {
         ContainerId(hex::encode(buf))
     }
 
+    fn some_service() -> Service {
+        Service {
+            image: String::from("repo/service"),
+            tag: String::from("latest"),
+            port: 8080,
+            replicas: 1,
+            host: String::from("example.com"),
+            path_prefix: None,
+            environment: None,
+        }
+    }
+
     #[test]
     fn can_store_and_fetch_service_definitions() {
         let mut registry = ServiceRegistry::new();
@@ -115,6 +141,38 @@ mod tests {
         let found = registry.get_definition(service);
 
         assert_eq!(found, Some(&definition));
+    }
+
+    #[test]
+    fn can_remove_service_definitions() {
+        let mut registry = ServiceRegistry::new();
+        let service = "backend";
+        let definition = some_service();
+
+        registry.define(service, definition);
+
+        assert!(registry.get_definition(service).is_some());
+
+        registry.undefine(service);
+
+        assert!(registry.get_definition(service).is_none());
+    }
+
+    #[test]
+    fn can_update_tag_for_definitions() {
+        let mut registry = ServiceRegistry::new();
+        let service = "backend";
+        let definition = some_service();
+
+        registry.define(service, definition);
+
+        let new_tag = "foobar";
+        registry.update_tag(service, new_tag);
+
+        assert_eq!(
+            registry.get_definition(service).map(|def| def.tag.as_str()),
+            Some(new_tag)
+        );
     }
 
     #[test]
@@ -274,5 +332,20 @@ mod tests {
 
         assert!(container1.is_none());
         assert!(container2.is_some());
+    }
+
+    #[test]
+    fn can_remove_all_containers_for_service() {
+        let mut registry = ServiceRegistry::new();
+        let name = "foobar";
+
+        define_service(&mut registry, name, "foo.bar", None);
+
+        add_container(&mut registry, name);
+        add_container(&mut registry, name);
+
+        registry.remove_all_containers(name);
+
+        assert!(registry.get_running_containers(name).is_none());
     }
 }

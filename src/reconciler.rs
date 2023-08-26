@@ -77,6 +77,8 @@ impl Reconciler {
 
                 let mut write_lock = self.registry.write().await;
 
+                write_lock.update_tag(&name, &value);
+
                 started_containers
                     .into_iter()
                     .for_each(|details| write_lock.add_container(&name, details));
@@ -85,12 +87,63 @@ impl Reconciler {
                     write_lock.remove_container_by_id(&name, &details.id);
                 }
 
+                tracing::debug!("{write_lock:?}");
+
                 drop(write_lock);
 
                 // Delete the previously running containers
+                let client = Client::new("/var/run/docker.sock");
+
                 for details in &running_containers {
-                    let client = Client::new("/var/run/docker.sock");
                     client.remove_container(&details.id).await?;
+                }
+            }
+            Diff::ServiceAddition { name, definition } => {
+                // Start some containers, then add to the LB
+                let replicas = definition.replicas;
+                let container = Container::from(&definition);
+                let mut started_containers = Vec::new();
+
+                for _ in 0..replicas {
+                    let details = create_and_start_container(&container, &definition.tag).await?;
+
+                    started_containers.push(details);
+                }
+
+                let mut write_lock = self.registry.write().await;
+
+                write_lock.define(&name, definition);
+
+                started_containers
+                    .into_iter()
+                    .for_each(|details| write_lock.add_container(&name, details));
+
+                tracing::debug!("{write_lock:?}");
+            }
+            Diff::ServiceRemoval { name } => {
+                let read_lock = self.registry.read().await;
+
+                // Get the running containers
+                let running_containers = read_lock.get_running_containers(&name).cloned();
+                drop(read_lock);
+
+                // Remove them from the LB
+                if let Some(containers) = running_containers {
+                    let mut write_lock = self.registry.write().await;
+
+                    write_lock.undefine(&name);
+                    write_lock.remove_all_containers(&name);
+
+                    tracing::debug!("{write_lock:?}");
+
+                    drop(write_lock);
+
+                    // Remove the running containers
+                    let client = Client::new("/var/run/docker.sock");
+
+                    for details in &containers {
+                        client.remove_container(&details.id).await?;
+                    }
                 }
             }
         }
