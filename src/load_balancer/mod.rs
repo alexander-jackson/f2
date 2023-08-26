@@ -80,7 +80,7 @@ impl LoadBalancer {
             let incoming = AddrIncoming::from_listener(listener)?;
             let acceptor = TlsAcceptor::builder()
                 .with_single_cert(certs, key)?
-                .with_all_versions_alpn()
+                .with_http11_alpn()
                 .with_incoming(incoming);
 
             let service = make_service_fn(move |_| {
