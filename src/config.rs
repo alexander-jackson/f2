@@ -11,6 +11,8 @@ use crate::crypto::decrypt;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Diff {
     TagUpdate { name: String, value: String },
+    ServiceAddition { name: String, definition: Service },
+    ServiceRemoval { name: String },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -44,15 +46,28 @@ impl Config {
         let mut diff = Vec::new();
 
         for (name, service) in &self.services {
-            // If it was defined before
+            // If it is still defined
             if let Some(definition) = right.services.get(name) {
                 // Check for tag updates
                 if service.tag != definition.tag {
                     diff.push(Diff::TagUpdate {
-                        name: name.to_owned(),
-                        value: definition.tag.to_owned(),
+                        name: name.into(),
+                        value: definition.tag.clone(),
                     });
                 }
+            } else {
+                // No longer defined, must have been removed entirely
+                diff.push(Diff::ServiceRemoval { name: name.into() })
+            }
+        }
+
+        // Check if any services have been added
+        for (name, definition) in &right.services {
+            if self.services.get(name).is_none() {
+                diff.push(Diff::ServiceAddition {
+                    name: name.into(),
+                    definition: definition.clone(),
+                })
             }
         }
 
@@ -184,5 +199,50 @@ mod tests {
         let diff = left.diff(&right);
 
         assert_eq!(diff, None);
+    }
+
+    #[test]
+    fn can_notice_additional_services() {
+        let left = some_config();
+        let mut right = left.clone();
+
+        let service = Service {
+            image: String::from("org/frontend"),
+            tag: String::from("latest"),
+            port: 80,
+            replicas: 1,
+            host: String::from("example.com"),
+            path_prefix: None,
+            environment: None,
+        };
+
+        right.services.insert("frontend".into(), service.clone());
+
+        let diff = left.diff(&right);
+
+        assert_eq!(
+            diff,
+            Some(vec![Diff::ServiceAddition {
+                name: "frontend".into(),
+                definition: service,
+            }])
+        )
+    }
+
+    #[test]
+    fn can_notice_removal_of_services() {
+        let left = some_config();
+        let mut right = left.clone();
+
+        right.services.remove("backend");
+
+        let diff = left.diff(&right);
+
+        assert_eq!(
+            diff,
+            Some(vec![Diff::ServiceRemoval {
+                name: "backend".into()
+            }])
+        )
     }
 }
