@@ -45,8 +45,17 @@ async fn main() -> Result<()> {
     let args = Args::parse()?;
     let mut config = Config::from_location(&args.config_location).await?;
 
-    let private_key = crypto::get_private_key("ENV_PRIVATE_KEY")?;
-    config.resolve_secrets(&private_key)?;
+    let private_key = match config.secrets.clone() {
+        Some(secrets) => {
+            let bytes = secrets.private_key.resolve().await?;
+            let key = crypto::parse_private_key(&bytes)?;
+
+            Some(key)
+        }
+        None => None,
+    };
+
+    config.resolve_secrets(private_key.as_ref())?;
 
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
     let port = config.alb.port;

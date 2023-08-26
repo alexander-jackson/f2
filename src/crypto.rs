@@ -1,5 +1,3 @@
-use std::env;
-
 use base64::alphabet::STANDARD;
 use base64::engine::{GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
@@ -7,11 +5,9 @@ use color_eyre::Result;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey};
 
-pub fn get_private_key(environment_variable: &str) -> Result<RsaPrivateKey> {
-    let base64 = env::var(environment_variable)?;
-    let decoded = base64_decode(&base64)?;
-    let utf8 = String::from_utf8(decoded)?;
-    let parsed = RsaPrivateKey::from_pkcs8_pem(&utf8)?;
+pub fn parse_private_key(bytes: &[u8]) -> Result<RsaPrivateKey> {
+    let utf8 = std::str::from_utf8(bytes)?;
+    let parsed = RsaPrivateKey::from_pkcs8_pem(utf8)?;
 
     parsed.validate()?;
 

@@ -99,6 +99,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                         reconciliation: String::from("/reconciliation"),
                         tls: None,
                     },
+                    secrets: None,
                     services: HashMap::new(),
                     auxillary_services: None,
                 },
