@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
 
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
     let port = config.alb.port;
+    let tls = config.alb.tls.clone();
 
     let mut service_registry = ServiceRegistry::new();
     start_services(&config.services, &mut service_registry).await?;
@@ -70,7 +71,7 @@ async fn main() -> Result<()> {
 
     let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
 
-    load_balancer.start_on(addr, port).await?;
+    load_balancer.start_on(addr, port, tls).await?;
 
     Ok(())
 }

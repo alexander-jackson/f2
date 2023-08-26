@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 use color_eyre::eyre::{Context, Result};
 use rsa::RsaPrivateKey;
@@ -83,6 +84,49 @@ pub struct AlbConfig {
     pub addr: String,
     pub port: u16,
     pub reconciliation: String,
+    pub tls: Option<TlsConfig>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct TlsConfig {
+    cert_file: ExternalBytes,
+    key_file: ExternalBytes,
+}
+
+impl TlsConfig {
+    pub async fn resolve_files(&self) -> Result<(Vec<u8>, Vec<u8>)> {
+        let cert = self.cert_file.resolve().await?;
+        let key = self.key_file.resolve().await?;
+
+        Ok((cert, key))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(tag = "location", rename_all = "lowercase")]
+pub enum ExternalBytes {
+    Filesystem { path: PathBuf },
+    S3 { bucket: String, key: String },
+}
+
+impl ExternalBytes {
+    pub async fn resolve(&self) -> Result<Vec<u8>> {
+        let bytes = match self {
+            Self::Filesystem { path } => tokio::fs::read(path).await?,
+            Self::S3 { bucket, key } => {
+                let config = aws_config::load_from_env().await;
+                let client = aws_sdk_s3::Client::new(&config);
+
+                let response = client.get_object().bucket(bucket).key(key).send().await?;
+
+                response.body.collect().await?.to_vec()
+            }
+        };
+
+        tracing::debug!("Resolving a file at {self:?}, got {} bytes", bytes.len());
+
+        Ok(bytes)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -157,6 +201,7 @@ mod tests {
                 addr: String::new(),
                 port: 5000,
                 reconciliation: String::new(),
+                tls: None,
             },
             services,
             auxillary_services: None,
