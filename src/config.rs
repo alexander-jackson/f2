@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
@@ -19,6 +19,7 @@ pub enum Diff {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub alb: AlbConfig,
+    pub secrets: Option<SecretConfig>,
     pub services: HashMap<String, Service>,
     pub auxillary_services: Option<Vec<AuxillaryService>>,
 }
@@ -35,7 +36,7 @@ impl Config {
         Ok(config)
     }
 
-    pub fn resolve_secrets(&mut self, key: &RsaPrivateKey) -> Result<()> {
+    pub fn resolve_secrets(&mut self, key: Option<&RsaPrivateKey>) -> Result<()> {
         for (_, service) in self.services.iter_mut() {
             service.resolve_secrets(key)?;
         }
@@ -85,6 +86,11 @@ pub struct AlbConfig {
     pub port: u16,
     pub reconciliation: String,
     pub tls: Option<TlsConfig>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct SecretConfig {
+    pub private_key: ExternalBytes,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -141,7 +147,7 @@ pub struct Service {
 }
 
 impl Service {
-    pub fn resolve_secrets(&mut self, key: &RsaPrivateKey) -> Result<()> {
+    pub fn resolve_secrets(&mut self, key: Option<&RsaPrivateKey>) -> Result<()> {
         let Some(ref mut environment) = self.environment else {
             return Ok(());
         };
@@ -150,6 +156,8 @@ impl Service {
             tracing::info!("Resolving secret for {config_key}");
 
             if let Some(rhs) = value.strip_prefix("secret:") {
+                let key = key.ok_or_else(|| eyre!("Tried to decrypt secret without a key"))?;
+
                 *value = decrypt(rhs, key).wrap_err_with(|| {
                     format!("Failed to decrypt secret value for '{config_key}'")
                 })?;
@@ -203,6 +211,7 @@ mod tests {
                 reconciliation: String::new(),
                 tls: None,
             },
+            secrets: None,
             services,
             auxillary_services: None,
         }
