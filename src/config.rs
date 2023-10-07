@@ -95,11 +95,16 @@ pub struct SecretConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct TlsConfig {
+    pub domains: HashMap<String, TlsSecrets>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct TlsSecrets {
     cert_file: ExternalBytes,
     key_file: ExternalBytes,
 }
 
-impl TlsConfig {
+impl TlsSecrets {
     pub async fn resolve_files(&self) -> Result<(Vec<u8>, Vec<u8>)> {
         let cert = self.cert_file.resolve().await?;
         let key = self.key_file.resolve().await?;
