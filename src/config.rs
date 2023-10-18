@@ -11,9 +11,17 @@ use crate::crypto::decrypt;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Diff {
-    TagUpdate { name: String, value: String },
-    ServiceAddition { name: String, definition: Service },
-    ServiceRemoval { name: String },
+    Alteration {
+        name: String,
+        new_definition: Service,
+    },
+    Addition {
+        name: String,
+        definition: Service,
+    },
+    Removal {
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -50,23 +58,23 @@ impl Config {
         for (name, service) in &self.services {
             // If it is still defined
             if let Some(definition) = right.services.get(name) {
-                // Check for tag updates
-                if service.tag != definition.tag {
-                    diff.push(Diff::TagUpdate {
+                // Check for service alterations
+                if service != definition {
+                    diff.push(Diff::Alteration {
                         name: name.into(),
-                        value: definition.tag.clone(),
+                        new_definition: definition.clone(),
                     });
                 }
             } else {
                 // No longer defined, must have been removed entirely
-                diff.push(Diff::ServiceRemoval { name: name.into() })
+                diff.push(Diff::Removal { name: name.into() })
             }
         }
 
         // Check if any services have been added
         for (name, definition) in &right.services {
             if self.services.get(name).is_none() {
-                diff.push(Diff::ServiceAddition {
+                diff.push(Diff::Addition {
                     name: name.into(),
                     definition: definition.clone(),
                 })
@@ -233,9 +241,9 @@ mod tests {
 
         assert_eq!(
             diff,
-            Some(vec![Diff::TagUpdate {
+            Some(vec![Diff::Alteration {
                 name: String::from("backend"),
-                value: String::from("2")
+                new_definition: right.services.get("backend").unwrap().clone()
             }])
         );
     }
@@ -249,15 +257,26 @@ mod tests {
     }
 
     #[test]
-    fn changes_other_than_tag_are_ignored() {
+    fn can_notice_non_tag_changes() {
         let left = some_config();
+
         let mut right = left.clone();
 
-        right.services.get_mut("backend").unwrap().replicas = 2;
+        // Add an environment with some variables
+        let mut environment = HashMap::new();
+        environment.insert("NEW_PROPERTY".into(), "some-value".into());
+
+        right.services.get_mut("backend").unwrap().environment = Some(environment);
 
         let diff = left.diff(&right);
 
-        assert_eq!(diff, None);
+        assert_eq!(
+            diff,
+            Some(vec![Diff::Alteration {
+                name: String::from("backend"),
+                new_definition: right.services.get("backend").unwrap().clone()
+            }])
+        );
     }
 
     #[test]
@@ -281,7 +300,7 @@ mod tests {
 
         assert_eq!(
             diff,
-            Some(vec![Diff::ServiceAddition {
+            Some(vec![Diff::Addition {
                 name: "frontend".into(),
                 definition: service,
             }])
@@ -299,7 +318,7 @@ mod tests {
 
         assert_eq!(
             diff,
-            Some(vec![Diff::ServiceRemoval {
+            Some(vec![Diff::Removal {
                 name: "backend".into()
             }])
         )

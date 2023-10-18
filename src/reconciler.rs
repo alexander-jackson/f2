@@ -56,28 +56,31 @@ impl Reconciler {
 
     async fn handle_diff(&self, diff: Diff) -> Result<()> {
         match diff {
-            Diff::TagUpdate { name, value } => {
+            Diff::Alteration {
+                name,
+                new_definition,
+            } => {
                 let read_lock = self.registry.read().await;
                 let definition = read_lock.get_definition(&name).unwrap();
                 let replicas = definition.replicas;
                 let running_containers: HashSet<_> =
                     read_lock.get_running_containers(&name).unwrap().clone();
 
-                let container = Container::from(definition);
+                let container = Container::from(&new_definition);
                 drop(read_lock);
 
                 // Keep the locks short, create everything then add to the LB
                 let mut started_containers = Vec::new();
 
                 for _ in 0..replicas {
-                    let details = create_and_start_container(&container, &value).await?;
+                    let details =
+                        create_and_start_container(&container, &new_definition.tag).await?;
 
                     started_containers.push(details);
                 }
 
                 let mut write_lock = self.registry.write().await;
-
-                write_lock.update_tag(&name, &value);
+                write_lock.define(&name, new_definition);
 
                 started_containers
                     .into_iter()
@@ -98,7 +101,7 @@ impl Reconciler {
                     client.remove_container(&details.id).await?;
                 }
             }
-            Diff::ServiceAddition { name, definition } => {
+            Diff::Addition { name, definition } => {
                 // Start some containers, then add to the LB
                 let replicas = definition.replicas;
                 let container = Container::from(&definition);
@@ -120,7 +123,7 @@ impl Reconciler {
 
                 tracing::debug!("{write_lock:?}");
             }
-            Diff::ServiceRemoval { name } => {
+            Diff::Removal { name } => {
                 let read_lock = self.registry.read().await;
 
                 // Get the running containers
