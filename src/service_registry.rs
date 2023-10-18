@@ -36,12 +36,6 @@ impl ServiceRegistry {
         self.definitions.remove(service);
     }
 
-    pub fn update_tag(&mut self, service: &str, tag: &str) {
-        if let Some(definition) = self.definitions.get_mut(service) {
-            definition.tag = tag.into();
-        }
-    }
-
     pub fn get_running_containers(
         &self,
         service: &str,
@@ -156,23 +150,6 @@ mod tests {
         registry.undefine(service);
 
         assert!(registry.get_definition(service).is_none());
-    }
-
-    #[test]
-    fn can_update_tag_for_definitions() {
-        let mut registry = ServiceRegistry::new();
-        let service = "backend";
-        let definition = some_service();
-
-        registry.define(service, definition);
-
-        let new_tag = "foobar";
-        registry.update_tag(service, new_tag);
-
-        assert_eq!(
-            registry.get_definition(service).map(|def| def.tag.as_str()),
-            Some(new_tag)
-        );
     }
 
     #[test]
