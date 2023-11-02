@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use color_eyre::eyre::{eyre, Context, Result};
+use color_eyre::eyre::{Context, Result};
 use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
 use crate::args::ConfigurationLocation;
-use crate::crypto::{decrypt, parse_private_key};
+use crate::crypto::parse_private_key;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Diff {
@@ -56,14 +56,6 @@ impl Config {
         };
 
         Ok(private_key)
-    }
-
-    pub fn resolve_secrets(&mut self, key: Option<&RsaPrivateKey>) -> Result<()> {
-        for (_, service) in self.services.iter_mut() {
-            service.resolve_secrets(key)?;
-        }
-
-        Ok(())
     }
 
     pub fn diff(&self, right: &Self) -> Option<Vec<Diff>> {
@@ -171,28 +163,6 @@ pub struct Service {
     pub host: String,
     pub path_prefix: Option<String>,
     pub environment: Option<HashMap<String, String>>,
-}
-
-impl Service {
-    pub fn resolve_secrets(&mut self, key: Option<&RsaPrivateKey>) -> Result<()> {
-        let Some(ref mut environment) = self.environment else {
-            return Ok(());
-        };
-
-        for (config_key, value) in environment.iter_mut() {
-            tracing::info!("Resolving secret for {config_key}");
-
-            if let Some(rhs) = value.strip_prefix("secret:") {
-                let key = key.ok_or_else(|| eyre!("Tried to decrypt secret without a key"))?;
-
-                *value = decrypt(rhs, key).wrap_err_with(|| {
-                    format!("Failed to decrypt secret value for '{config_key}'")
-                })?;
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Hash for Service {
