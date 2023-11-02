@@ -55,6 +55,8 @@ impl Reconciler {
     }
 
     async fn handle_diff(&self, diff: Diff) -> Result<()> {
+        tracing::info!("Handling a diff: {diff:?}");
+
         match diff {
             Diff::Alteration {
                 name,

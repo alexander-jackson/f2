@@ -44,16 +44,15 @@ async fn main() -> Result<()> {
     setup()?;
 
     let args = Args::parse()?;
-    let mut config = Config::from_location(&args.config_location).await?;
-
-    let private_key = config.get_private_key().await?;
-    config.resolve_secrets(private_key.as_ref())?;
+    let config = Config::from_location(&args.config_location).await?;
 
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
     let port = config.alb.port;
     let tls = config.alb.tls.clone();
 
     let mut service_registry = ServiceRegistry::new();
+    let private_key = config.get_private_key().await?;
+
     start_services(
         &config.services,
         &mut service_registry,
