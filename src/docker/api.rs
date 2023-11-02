@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 
 use color_eyre::eyre::Result;
+use rsa::RsaPrivateKey;
 
 use crate::common::Container;
 use crate::docker::client::Client;
@@ -12,10 +13,11 @@ pub struct StartedContainerDetails {
     pub addr: Ipv4Addr,
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(private_key))]
 pub async fn create_and_start_container(
     container: &Container,
     tag: &str,
+    private_key: Option<&RsaPrivateKey>,
 ) -> Result<StartedContainerDetails> {
     let client = Client::new("/var/run/docker.sock");
 
@@ -26,9 +28,9 @@ pub async fn create_and_start_container(
     let name = format!("{}:{tag}", container.image);
     let target_port = container.target_port;
 
-    let id = client
-        .create_container(&name, &container.environment)
-        .await?;
+    let environment = container.decrypt_environment(private_key)?;
+
+    let id = client.create_container(&name, &environment).await?;
 
     client.start_container(&id).await?;
 

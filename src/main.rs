@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
+use rsa::RsaPrivateKey;
 use service_registry::ServiceRegistry;
 use tokio::sync::RwLock;
 
@@ -45,16 +46,7 @@ async fn main() -> Result<()> {
     let args = Args::parse()?;
     let mut config = Config::from_location(&args.config_location).await?;
 
-    let private_key = match config.secrets.clone() {
-        Some(secrets) => {
-            let bytes = secrets.private_key.resolve().await?;
-            let key = crypto::parse_private_key(&bytes)?;
-
-            Some(key)
-        }
-        None => None,
-    };
-
+    let private_key = config.get_private_key().await?;
     config.resolve_secrets(private_key.as_ref())?;
 
     let addr = Ipv4Addr::from_str(&config.alb.addr)?;
@@ -62,11 +54,16 @@ async fn main() -> Result<()> {
     let tls = config.alb.tls.clone();
 
     let mut service_registry = ServiceRegistry::new();
-    start_services(&config.services, &mut service_registry).await?;
+    start_services(
+        &config.services,
+        &mut service_registry,
+        private_key.as_ref(),
+    )
+    .await?;
 
     // Start the auxillary services
     if let Some(services) = &config.auxillary_services {
-        start_auxillary_services(services).await?;
+        start_auxillary_services(services, private_key.as_ref()).await?;
     }
 
     let service_registry = Arc::new(RwLock::new(service_registry));
@@ -88,6 +85,7 @@ async fn main() -> Result<()> {
 async fn start_services(
     services: &HashMap<String, Service>,
     service_registry: &mut ServiceRegistry,
+    private_key: Option<&RsaPrivateKey>,
 ) -> Result<()> {
     for (name, service) in services {
         service_registry.define(name, service.clone());
@@ -98,7 +96,7 @@ async fn start_services(
         tracing::info!("Starting {name} with tag {tag}");
 
         for _ in 0..service.replicas {
-            let details = create_and_start_container(&container, tag).await?;
+            let details = create_and_start_container(&container, tag, private_key).await?;
             service_registry.add_container(name, details);
         }
     }
@@ -106,11 +104,14 @@ async fn start_services(
     Ok(())
 }
 
-async fn start_auxillary_services(services: &[AuxillaryService]) -> Result<()> {
+async fn start_auxillary_services(
+    services: &[AuxillaryService],
+    private_key: Option<&RsaPrivateKey>,
+) -> Result<()> {
     for service in services {
         let tag = &service.tag;
         let container = Container::from(&service.clone());
-        let details = create_and_start_container(&container, tag).await?;
+        let details = create_and_start_container(&container, tag, private_key).await?;
 
         tracing::info!("Started {} on port {}", service.image, details.addr);
     }
