@@ -7,7 +7,7 @@ use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
 use crate::args::ConfigurationLocation;
-use crate::crypto::decrypt;
+use crate::crypto::{decrypt, parse_private_key};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Diff {
@@ -42,6 +42,20 @@ impl Config {
         let config = serde_yaml::from_slice(&bytes)?;
 
         Ok(config)
+    }
+
+    pub async fn get_private_key(&self) -> Result<Option<RsaPrivateKey>> {
+        let private_key = match self.secrets.as_ref() {
+            Some(secrets) => {
+                let bytes = secrets.private_key.resolve().await?;
+                let key = parse_private_key(&bytes)?;
+
+                Some(key)
+            }
+            None => None,
+        };
+
+        Ok(private_key)
     }
 
     pub fn resolve_secrets(&mut self, key: Option<&RsaPrivateKey>) -> Result<()> {

@@ -72,9 +72,15 @@ impl Reconciler {
                 // Keep the locks short, create everything then add to the LB
                 let mut started_containers = Vec::new();
 
+                let private_key = self.config.read().await.get_private_key().await?;
+
                 for _ in 0..replicas {
-                    let details =
-                        create_and_start_container(&container, &new_definition.tag).await?;
+                    let details = create_and_start_container(
+                        &container,
+                        &new_definition.tag,
+                        private_key.as_ref(),
+                    )
+                    .await?;
 
                     started_containers.push(details);
                 }
@@ -89,8 +95,6 @@ impl Reconciler {
                 for details in &running_containers {
                     write_lock.remove_container_by_id(&name, &details.id);
                 }
-
-                tracing::debug!("{write_lock:?}");
 
                 drop(write_lock);
 
@@ -107,8 +111,15 @@ impl Reconciler {
                 let container = Container::from(&definition);
                 let mut started_containers = Vec::new();
 
+                let private_key = self.config.read().await.get_private_key().await?;
+
                 for _ in 0..replicas {
-                    let details = create_and_start_container(&container, &definition.tag).await?;
+                    let details = create_and_start_container(
+                        &container,
+                        &definition.tag,
+                        private_key.as_ref(),
+                    )
+                    .await?;
 
                     started_containers.push(details);
                 }
@@ -120,8 +131,6 @@ impl Reconciler {
                 started_containers
                     .into_iter()
                     .for_each(|details| write_lock.add_container(&name, details));
-
-                tracing::debug!("{write_lock:?}");
             }
             Diff::Removal { name } => {
                 let read_lock = self.registry.read().await;
@@ -136,8 +145,6 @@ impl Reconciler {
 
                     write_lock.undefine(&name);
                     write_lock.remove_all_containers(&name);
-
-                    tracing::debug!("{write_lock:?}");
 
                     drop(write_lock);
 

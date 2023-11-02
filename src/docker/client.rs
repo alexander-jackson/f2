@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use color_eyre::eyre::{self, Result};
 use hyper::{Body, Method, Request, Uri};
 use hyperlocal::{UnixClientExt, UnixConnector};
 
+use crate::common::Environment;
 use crate::docker::models::{
     CreateContainerOptions, CreateContainerResponse, ImageSummary, InspectContainerResponse,
     NetworkSettings,
@@ -72,7 +72,7 @@ impl Client {
     pub async fn create_container(
         &self,
         image: &str,
-        environment: &Option<HashMap<String, String>>,
+        environment: &Option<Environment>,
     ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
 
@@ -155,12 +155,13 @@ impl Client {
     }
 }
 
-fn format_environment_variables(environment: &Option<HashMap<String, String>>) -> Vec<String> {
+fn format_environment_variables(environment: &Option<Environment>) -> Vec<String> {
     let Some(environment) = environment else {
         return Vec::new();
     };
 
     environment
+        .variables
         .iter()
         .map(|(k, v)| format!("{k}={v}"))
         .collect()
