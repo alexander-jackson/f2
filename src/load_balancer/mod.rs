@@ -68,26 +68,8 @@ impl LoadBalancer {
         let reconciler = Arc::clone(&self.reconciler);
 
         if let Some(tls) = tls {
-            let mut certificate_resolver = ResolvesServerCertUsingSni::new();
-
-            for (domain, secrets) in tls.domains {
-                let (cert, key) = secrets.resolve_files().await?;
-                let certified_key = parse_certified_key(&cert, &key)?;
-
-                certificate_resolver.add(&domain, certified_key)?;
-            }
-
-            let config = rustls::ServerConfig::builder()
-                .with_safe_defaults()
-                .with_no_client_auth()
-                .with_cert_resolver(Arc::new(certificate_resolver));
-
-            let listener = tokio::net::TcpListener::from_std(listener)?;
-            let incoming = AddrIncoming::from_listener(listener)?;
-            let acceptor = TlsAcceptor::builder()
-                .with_tls_config(config)
-                .with_http11_alpn()
-                .with_incoming(incoming);
+            let acceptor = build_tls_acceptor(listener, tls).await?;
+            let server = Server::builder(acceptor);
 
             let service = make_service_fn(move |_| {
                 let service_registry = Arc::clone(&service_registry);
@@ -109,8 +91,6 @@ impl LoadBalancer {
                     }))
                 }
             });
-
-            let server = Server::builder(acceptor);
 
             server.serve(service).await?;
         } else {
@@ -142,6 +122,31 @@ impl LoadBalancer {
 
         Ok(())
     }
+}
+
+async fn build_tls_acceptor(listener: TcpListener, tls: TlsConfig) -> Result<TlsAcceptor> {
+    let mut certificate_resolver = ResolvesServerCertUsingSni::new();
+
+    for (domain, secrets) in tls.domains {
+        let (cert, key) = secrets.resolve_files().await?;
+        let certified_key = parse_certified_key(&cert, &key)?;
+
+        certificate_resolver.add(&domain, certified_key)?;
+    }
+
+    let config = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_cert_resolver(Arc::new(certificate_resolver));
+
+    let listener = tokio::net::TcpListener::from_std(listener)?;
+    let incoming = AddrIncoming::from_listener(listener)?;
+    let acceptor = TlsAcceptor::builder()
+        .with_tls_config(config)
+        .with_http11_alpn()
+        .with_incoming(incoming);
+
+    Ok(acceptor)
 }
 
 fn parse_certified_key(cert: &[u8], key: &[u8]) -> Result<CertifiedKey> {
