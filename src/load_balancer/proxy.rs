@@ -5,7 +5,8 @@ use color_eyre::eyre::{ContextCompat, Result};
 use hyper::client::HttpConnector;
 use hyper::http::uri::PathAndQuery;
 use hyper::{Body, Client, Request, Response};
-use rand::prelude::{SliceRandom, SmallRng};
+use rand::prelude::SmallRng;
+use rand::RngCore;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::reconciler::Reconciler;
@@ -36,23 +37,19 @@ pub async fn handle_request(
 
     // Filter based on the host, then do path matching for longest length
     let read_lock = service_registry.read().await;
-    let downstreams = read_lock.find_downstreams(host, uri.path());
 
-    let Some(downstreams) = downstreams else {
+    let Some((downstreams, port)) = read_lock.find_downstreams(host, uri.path()) else {
         let response = Response::builder().status(404).body(Body::empty())?;
         return Ok(response);
     };
 
-    let (downstreams, port) = downstreams;
-
     let downstream = {
         let mut rng = rng.lock().await;
-
-        // TODO: remove this
-        let downstreams: Vec<_> = downstreams.iter().collect();
+        let next = rng.next_u32() as usize;
+        let normalised = next % downstreams.len();
 
         downstreams
-            .choose(&mut *rng)
+            .get_index(normalised)
             .context("Failed to select downstream host")?
             .addr
     };

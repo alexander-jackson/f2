@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use indexmap::IndexSet;
 
 use crate::config::Service;
 use crate::docker::api::StartedContainerDetails;
@@ -16,7 +18,7 @@ fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
 #[derive(Debug, Default)]
 pub struct ServiceRegistry {
     definitions: HashMap<String, Service>,
-    containers: HashMap<String, HashSet<StartedContainerDetails>>,
+    containers: HashMap<String, IndexSet<StartedContainerDetails>>,
 }
 
 impl ServiceRegistry {
@@ -39,7 +41,7 @@ impl ServiceRegistry {
     pub fn get_running_containers(
         &self,
         service: &str,
-    ) -> Option<&HashSet<StartedContainerDetails>> {
+    ) -> Option<&IndexSet<StartedContainerDetails>> {
         tracing::debug!("Fetching running containers for {service}");
 
         self.containers.get(service)
@@ -70,7 +72,7 @@ impl ServiceRegistry {
         &self,
         host: &str,
         path: &str,
-    ) -> Option<(&HashSet<StartedContainerDetails>, u16)> {
+    ) -> Option<(&IndexSet<StartedContainerDetails>, u16)> {
         self.definitions
             .iter()
             .filter(|entry| entry.1.host == host)

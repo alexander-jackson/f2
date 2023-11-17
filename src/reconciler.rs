@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use color_eyre::Result;
+use indexmap::IndexSet;
 use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
@@ -65,7 +65,7 @@ impl Reconciler {
                 let read_lock = self.registry.read().await;
                 let definition = read_lock.get_definition(&name).unwrap();
                 let replicas = definition.replicas;
-                let running_containers: HashSet<_> =
+                let running_containers: IndexSet<_> =
                     read_lock.get_running_containers(&name).unwrap().clone();
 
                 let container = Container::from(&new_definition);
