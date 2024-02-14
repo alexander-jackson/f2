@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
@@ -46,7 +44,7 @@ async fn main() -> Result<()> {
     let args = Args::parse()?;
     let config = Config::from_location(&args.config_location).await?;
 
-    let addr = Ipv4Addr::from_str(&config.alb.addr)?;
+    let addr = config.alb.addr;
     let port = config.alb.port;
     let tls = config.alb.tls.clone();
 
