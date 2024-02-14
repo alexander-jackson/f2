@@ -94,7 +94,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                 ConfigurationLocation::Filesystem(PathBuf::new()),
                 Config {
                     alb: AlbConfig {
-                        addr: String::from("127.0.0.1"),
+                        addr: Ipv4Addr::LOCALHOST,
                         port: 5000,
                         reconciliation: String::from("/reconciliation"),
                         tls: None,

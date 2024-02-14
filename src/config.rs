@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
 use color_eyre::eyre::{Context, Result};
@@ -96,7 +97,7 @@ impl Config {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct AlbConfig {
-    pub addr: String,
+    pub addr: Ipv4Addr,
     pub port: u16,
     pub reconciliation: String,
     pub tls: Option<TlsConfig>,
@@ -183,6 +184,7 @@ pub struct AuxillaryService {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::net::Ipv4Addr;
 
     use crate::config::{AlbConfig, Config, Diff, Service};
 
@@ -203,7 +205,7 @@ mod tests {
 
         Config {
             alb: AlbConfig {
-                addr: String::new(),
+                addr: Ipv4Addr::LOCALHOST,
                 port: 5000,
                 reconciliation: String::new(),
                 tls: None,
