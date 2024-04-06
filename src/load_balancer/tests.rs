@@ -15,6 +15,7 @@ use crate::config::{AlbConfig, Config, Service};
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
 use crate::load_balancer::LoadBalancer;
+use crate::reconciler::tests::FakeDockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
@@ -103,6 +104,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                     services: HashMap::new(),
                     auxillary_services: None,
                 },
+                FakeDockerClient::default(),
             ),
         );
 

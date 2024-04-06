@@ -12,26 +12,32 @@ use crate::docker::models::{
 
 use super::models::ContainerId;
 
+#[async_trait::async_trait]
+pub trait DockerClient {
+    async fn fetch_images(&self) -> Result<Vec<ImageSummary>>;
+    async fn pull_image(&self, image: &str, tag: &str) -> Result<()>;
+
+    async fn create_container(
+        &self,
+        image: &str,
+        environment: &Option<Environment>,
+    ) -> Result<ContainerId>;
+
+    async fn start_container(&self, id: &ContainerId) -> Result<()>;
+
+    async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr>;
+
+    async fn remove_container(&self, id: &ContainerId) -> Result<()>;
+}
+
 pub struct Client {
     client: hyper::Client<UnixConnector, Body>,
     base: String,
 }
 
-impl Client {
-    pub fn new(base: &str) -> Self {
-        tracing::debug!(%base, "Created a new Docker client");
-
-        Self {
-            client: hyper::Client::unix(),
-            base: String::from(base),
-        }
-    }
-
-    fn build_uri(&self, endpoint: &str) -> Uri {
-        hyperlocal::Uri::new(&self.base, endpoint).into()
-    }
-
-    pub async fn fetch_images(&self) -> Result<Vec<ImageSummary>> {
+#[async_trait::async_trait]
+impl DockerClient for Client {
+    async fn fetch_images(&self) -> Result<Vec<ImageSummary>> {
         let uri = self.build_uri("/images/json");
 
         tracing::info!(%uri, "Fetching images from the Docker server");
@@ -44,7 +50,7 @@ impl Client {
         Ok(summaries)
     }
 
-    pub async fn pull_image(&self, image: &str, tag: &str) -> Result<()> {
+    async fn pull_image(&self, image: &str, tag: &str) -> Result<()> {
         let path_and_query = format!("/images/create?fromImage={image}:{tag}");
         let uri = self.build_uri(&path_and_query);
 
@@ -69,7 +75,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn create_container(
+    async fn create_container(
         &self,
         image: &str,
         environment: &Option<Environment>,
@@ -102,7 +108,7 @@ impl Client {
         Ok(body.id)
     }
 
-    pub async fn start_container(&self, id: &ContainerId) -> Result<()> {
+    async fn start_container(&self, id: &ContainerId) -> Result<()> {
         let path = format!("/containers/{id}/start");
         let uri = self.build_uri(&path);
 
@@ -118,7 +124,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr> {
+    async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr> {
         let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 
@@ -138,7 +144,7 @@ impl Client {
         Ok(ip_address)
     }
 
-    pub async fn remove_container(&self, id: &ContainerId) -> Result<()> {
+    async fn remove_container(&self, id: &ContainerId) -> Result<()> {
         let path = format!("/containers/{id}?force=true");
         let uri = self.build_uri(&path);
 
@@ -152,6 +158,21 @@ impl Client {
         self.client.request(request).await?;
 
         Ok(())
+    }
+}
+
+impl Client {
+    pub fn new(base: &str) -> Self {
+        tracing::debug!(%base, "Created a new Docker client");
+
+        Self {
+            client: hyper::Client::unix(),
+            base: String::from(base),
+        }
+    }
+
+    fn build_uri(&self, endpoint: &str) -> Uri {
+        hyperlocal::Uri::new(&self.base, endpoint).into()
     }
 }
 

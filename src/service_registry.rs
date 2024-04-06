@@ -89,21 +89,10 @@ mod tests {
     use std::collections::HashSet;
     use std::net::Ipv4Addr;
 
-    use rand::rngs::ThreadRng;
-    use rand::RngCore;
-
     use crate::config::Service;
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::models::ContainerId;
     use crate::service_registry::ServiceRegistry;
-
-    fn random_container_id() -> ContainerId {
-        let mut rng = ThreadRng::default();
-        let mut buf: [u8; 6] = [0; 6];
-        rng.fill_bytes(buf.as_mut_slice());
-
-        ContainerId(hex::encode(buf))
-    }
 
     fn some_service() -> Service {
         Service {
@@ -158,8 +147,8 @@ mod tests {
     fn can_store_and_fetch_container_data() {
         let mut registry = ServiceRegistry::new();
 
-        let container1 = random_container_id();
-        let container2 = random_container_id();
+        let container1 = ContainerId::random();
+        let container2 = ContainerId::random();
 
         let first = StartedContainerDetails {
             id: container1.clone(),
@@ -211,7 +200,7 @@ mod tests {
     }
 
     fn add_container(registry: &mut ServiceRegistry, name: &str) -> ContainerId {
-        let id = random_container_id();
+        let id = ContainerId::random();
 
         let details = StartedContainerDetails {
             id: id.clone(),

@@ -9,15 +9,16 @@ use rand::prelude::SmallRng;
 use rand::RngCore;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
-pub async fn handle_request(
+pub async fn handle_request<C: DockerClient>(
     service_registry: Arc<RwLock<ServiceRegistry>>,
     rng: Arc<Mutex<SmallRng>>,
     client: Client<HttpConnector>,
     reconciliation_path: Arc<str>,
-    reconciler: Arc<Reconciler>,
+    reconciler: Arc<Reconciler<C>>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>> {
     let uri = req.uri();

@@ -4,7 +4,7 @@ use color_eyre::eyre::Result;
 use rsa::RsaPrivateKey;
 
 use crate::common::Container;
-use crate::docker::client::Client;
+use crate::docker::client::DockerClient;
 use crate::docker::models::ContainerId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -13,16 +13,15 @@ pub struct StartedContainerDetails {
     pub addr: Ipv4Addr,
 }
 
-#[tracing::instrument(skip(private_key))]
-pub async fn create_and_start_container(
+#[tracing::instrument(skip(client, private_key))]
+pub async fn create_and_start_container<C: DockerClient>(
+    client: &C,
     container: &Container,
     tag: &str,
     private_key: Option<&RsaPrivateKey>,
 ) -> Result<StartedContainerDetails> {
-    let client = Client::new("/var/run/docker.sock");
-
     // Ensure the image exists locally
-    pull_image_if_needed(&client, container, tag).await?;
+    pull_image_if_needed(client, container, tag).await?;
 
     // Create the container
     let name = format!("{}:{tag}", container.image);
@@ -44,7 +43,11 @@ pub async fn create_and_start_container(
     Ok(StartedContainerDetails { id, addr })
 }
 
-async fn pull_image_if_needed(client: &Client, container: &Container, tag: &str) -> Result<()> {
+async fn pull_image_if_needed<C: DockerClient>(
+    client: &C,
+    container: &Container,
+    tag: &str,
+) -> Result<()> {
     // Check whether we have the image locally
     let expected_tag = format!("{}:{tag}", container.image);
 

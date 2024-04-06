@@ -14,25 +14,26 @@ use rustls::sign::{any_supported_type, CertifiedKey};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::TlsConfig;
+use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
 mod proxy;
 
 #[derive(Debug)]
-pub struct LoadBalancer {
+pub struct LoadBalancer<C: DockerClient> {
     service_registry: Arc<RwLock<ServiceRegistry>>,
     client: Client<HttpConnector>,
     rng: Arc<Mutex<SmallRng>>,
     reconciler_path: Arc<str>,
-    reconciler: Arc<Reconciler>,
+    reconciler: Arc<Reconciler<C>>,
 }
 
-impl LoadBalancer {
+impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
     pub fn new(
         service_registry: Arc<RwLock<ServiceRegistry>>,
         reconciler_path: &str,
-        reconciler: Reconciler,
+        reconciler: Reconciler<C>,
     ) -> Self {
         let client = Client::new();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));

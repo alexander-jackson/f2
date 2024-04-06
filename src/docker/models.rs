@@ -12,7 +12,20 @@ impl fmt::Display for ContainerId {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[cfg(test)]
+impl ContainerId {
+    pub fn random() -> Self {
+        use rand::RngCore;
+
+        let mut rng = rand::rngs::ThreadRng::default();
+        let mut buf: [u8; 6] = [0; 6];
+        rng.fill_bytes(buf.as_mut_slice());
+
+        Self(hex::encode(buf))
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ImageSummary {
     pub repo_tags: Vec<String>,
