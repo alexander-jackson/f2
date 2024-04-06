@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use color_eyre::Result;
+use color_eyre::eyre::{eyre, Result};
 use indexmap::IndexSet;
 use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
 use crate::common::Container;
-use crate::config::{Config, Diff};
-use crate::docker::api::create_and_start_container;
+use crate::config::{Config, Diff, Service};
+use crate::docker::api::{create_and_start_container, StartedContainerDetails};
 use crate::docker::client::DockerClient;
 use crate::service_registry::ServiceRegistry;
 
@@ -57,6 +57,104 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
+    async fn get_running_containers(
+        &self,
+        name: &str,
+    ) -> Option<IndexSet<StartedContainerDetails>> {
+        let read_lock = self.registry.read().await;
+
+        read_lock.get_running_containers(name).cloned()
+    }
+
+    async fn start_multiple_containers(
+        &self,
+        name: &str,
+        new_definition: Service,
+        replicas: u32,
+    ) -> Result<()> {
+        // Keep the locks short, create everything then add to the LB
+        let mut started_containers = Vec::new();
+
+        let private_key = self.config.read().await.get_private_key().await?;
+        let container = Container::from(&new_definition);
+
+        for _ in 0..replicas {
+            let details = create_and_start_container(
+                &self.docker_client,
+                &container,
+                &new_definition.tag,
+                private_key.as_ref(),
+            )
+            .await?;
+
+            started_containers.push(details);
+        }
+
+        let mut write_lock = self.registry.write().await;
+        write_lock.define(name, new_definition);
+
+        started_containers
+            .into_iter()
+            .for_each(|details| write_lock.add_container(name, details));
+
+        Ok(())
+    }
+
+    async fn handle_alteration(&self, name: String, new_definition: Service) -> Result<()> {
+        let running_containers = self
+            .get_running_containers(&name)
+            .await
+            .ok_or_else(|| eyre!("Failed to get running containers for {name}"))?;
+
+        let replicas = new_definition.replicas;
+
+        self.start_multiple_containers(&name, new_definition, replicas)
+            .await?;
+
+        let mut write_lock = self.registry.write().await;
+
+        for details in &running_containers {
+            write_lock.remove_container_by_id(&name, &details.id);
+        }
+
+        drop(write_lock);
+
+        for details in &running_containers {
+            self.docker_client.remove_container(&details.id).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_addition(&self, name: String, definition: Service) -> Result<()> {
+        let replicas = definition.replicas;
+
+        self.start_multiple_containers(&name, definition, replicas)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn handle_removal(&self, name: String) -> Result<()> {
+        let running_containers = self.get_running_containers(&name).await;
+
+        // Remove them from the LB
+        if let Some(containers) = running_containers {
+            let mut write_lock = self.registry.write().await;
+
+            write_lock.undefine(&name);
+            write_lock.remove_all_containers(&name);
+
+            drop(write_lock);
+
+            for details in &containers {
+                self.docker_client.remove_container(&details.id).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn handle_diff(&self, diff: Diff) -> Result<()> {
         tracing::info!("Handling a diff: {diff:?}");
 
@@ -64,100 +162,9 @@ impl<C: DockerClient> Reconciler<C> {
             Diff::Alteration {
                 name,
                 new_definition,
-            } => {
-                let read_lock = self.registry.read().await;
-                let replicas = new_definition.replicas;
-                let running_containers: IndexSet<_> =
-                    read_lock.get_running_containers(&name).unwrap().clone();
-
-                let container = Container::from(&new_definition);
-                drop(read_lock);
-
-                // Keep the locks short, create everything then add to the LB
-                let mut started_containers = Vec::new();
-
-                let private_key = self.config.read().await.get_private_key().await?;
-
-                for _ in 0..replicas {
-                    let details = create_and_start_container(
-                        &self.docker_client,
-                        &container,
-                        &new_definition.tag,
-                        private_key.as_ref(),
-                    )
-                    .await?;
-
-                    started_containers.push(details);
-                }
-
-                let mut write_lock = self.registry.write().await;
-                write_lock.define(&name, new_definition);
-
-                started_containers
-                    .into_iter()
-                    .for_each(|details| write_lock.add_container(&name, details));
-
-                for details in &running_containers {
-                    write_lock.remove_container_by_id(&name, &details.id);
-                }
-
-                drop(write_lock);
-
-                // Delete the previously running containers
-                for details in &running_containers {
-                    self.docker_client.remove_container(&details.id).await?;
-                }
-            }
-            Diff::Addition { name, definition } => {
-                // Start some containers, then add to the LB
-                let replicas = definition.replicas;
-                let container = Container::from(&definition);
-                let mut started_containers = Vec::new();
-
-                let private_key = self.config.read().await.get_private_key().await?;
-
-                for _ in 0..replicas {
-                    let details = create_and_start_container(
-                        &self.docker_client,
-                        &container,
-                        &definition.tag,
-                        private_key.as_ref(),
-                    )
-                    .await?;
-
-                    started_containers.push(details);
-                }
-
-                let mut write_lock = self.registry.write().await;
-
-                write_lock.define(&name, definition);
-
-                started_containers
-                    .into_iter()
-                    .for_each(|details| write_lock.add_container(&name, details));
-            }
-            Diff::Removal { name } => {
-                let read_lock = self.registry.read().await;
-
-                // Get the running containers
-                let running_containers = read_lock.get_running_containers(&name).cloned();
-                drop(read_lock);
-
-                // Remove them from the LB
-                if let Some(containers) = running_containers {
-                    let mut write_lock = self.registry.write().await;
-
-                    write_lock.undefine(&name);
-                    write_lock.remove_all_containers(&name);
-
-                    drop(write_lock);
-
-                    // Remove the running containers
-                    for details in &containers {
-                        self.docker_client.remove_container(&details.id).await?;
-                    }
-                }
-            }
+            } => self.handle_alteration(name, new_definition).await?,
+            Diff::Addition { name, definition } => self.handle_addition(name, definition).await?,
+            Diff::Removal { name } => self.handle_removal(name).await?,
         }
 
         Ok(())
