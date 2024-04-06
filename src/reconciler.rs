@@ -8,26 +8,29 @@ use crate::args::ConfigurationLocation;
 use crate::common::Container;
 use crate::config::{Config, Diff};
 use crate::docker::api::create_and_start_container;
-use crate::docker::client::Client;
+use crate::docker::client::DockerClient;
 use crate::service_registry::ServiceRegistry;
 
 #[derive(Debug, Clone)]
-pub struct Reconciler {
+pub struct Reconciler<C: DockerClient> {
     registry: Arc<RwLock<ServiceRegistry>>,
     config_location: Arc<ConfigurationLocation>,
     config: Arc<RwLock<Config>>,
+    docker_client: C,
 }
 
-impl Reconciler {
+impl<C: DockerClient> Reconciler<C> {
     pub fn new(
         registry: Arc<RwLock<ServiceRegistry>>,
         config_location: ConfigurationLocation,
         config: Config,
+        docker_client: C,
     ) -> Self {
         Self {
             registry,
             config_location: Arc::new(config_location),
             config: Arc::new(RwLock::new(config)),
+            docker_client,
         }
     }
 
@@ -78,6 +81,7 @@ impl Reconciler {
 
                 for _ in 0..replicas {
                     let details = create_and_start_container(
+                        &self.docker_client,
                         &container,
                         &new_definition.tag,
                         private_key.as_ref(),
@@ -101,10 +105,8 @@ impl Reconciler {
                 drop(write_lock);
 
                 // Delete the previously running containers
-                let client = Client::new("/var/run/docker.sock");
-
                 for details in &running_containers {
-                    client.remove_container(&details.id).await?;
+                    self.docker_client.remove_container(&details.id).await?;
                 }
             }
             Diff::Addition { name, definition } => {
@@ -117,6 +119,7 @@ impl Reconciler {
 
                 for _ in 0..replicas {
                     let details = create_and_start_container(
+                        &self.docker_client,
                         &container,
                         &definition.tag,
                         private_key.as_ref(),
@@ -151,10 +154,8 @@ impl Reconciler {
                     drop(write_lock);
 
                     // Remove the running containers
-                    let client = Client::new("/var/run/docker.sock");
-
                     for details in &containers {
-                        client.remove_container(&details.id).await?;
+                        self.docker_client.remove_container(&details.id).await?;
                     }
                 }
             }
@@ -165,4 +166,133 @@ impl Reconciler {
 }
 
 #[cfg(test)]
-mod tests {}
+pub mod tests {
+    use std::collections::HashMap;
+    use std::net::Ipv4Addr;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use color_eyre::eyre::Result;
+    use tokio::sync::RwLock;
+
+    use crate::args::ConfigurationLocation;
+    use crate::common::Environment;
+    use crate::config::{AlbConfig, Config, Diff, Service};
+    use crate::docker::client::DockerClient;
+    use crate::docker::models::{ContainerId, ImageSummary};
+    use crate::reconciler::Reconciler;
+    use crate::service_registry::ServiceRegistry;
+
+    #[derive(Clone, Debug, Default)]
+    struct DockerState {
+        images: Vec<ImageSummary>,
+        containers: Vec<(ContainerId, String)>,
+    }
+
+    #[derive(Clone, Default)]
+    pub struct FakeDockerClient {
+        state: Arc<RwLock<DockerState>>,
+    }
+
+    #[async_trait::async_trait]
+    impl DockerClient for FakeDockerClient {
+        async fn fetch_images(&self) -> Result<Vec<ImageSummary>> {
+            let lock = self.state.read().await;
+
+            Ok(lock.images.clone())
+        }
+
+        async fn pull_image(&self, _image: &str, _tag: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn create_container(
+            &self,
+            image: &str,
+            environment: &Option<Environment>,
+        ) -> Result<ContainerId> {
+            let container_id = ContainerId::random();
+
+            println!("Creating a new container, {image}, {container_id}");
+
+            let mut lock = self.state.write().await;
+            lock.containers
+                .push((container_id.clone(), image.to_owned()));
+
+            Ok(container_id)
+        }
+
+        async fn start_container(&self, id: &ContainerId) -> Result<()> {
+            Ok(())
+        }
+
+        async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr> {
+            Ok(Ipv4Addr::LOCALHOST)
+        }
+
+        async fn remove_container(&self, id: &ContainerId) -> Result<()> {
+            println!("Removing a container: {}", id.0);
+
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn can_handle_addition_of_services() -> Result<()> {
+        let registry = ServiceRegistry::new();
+        let config_location = ConfigurationLocation::Filesystem(PathBuf::new());
+
+        let image = "alexanderjackson/f2";
+        let tag = "latest";
+
+        let service = Service {
+            image: image.to_owned(),
+            tag: tag.to_owned(),
+            port: 5000,
+            replicas: 1,
+            host: "localhost".to_owned(),
+            path_prefix: None,
+            environment: None,
+        };
+
+        let config = Config {
+            alb: AlbConfig {
+                addr: Ipv4Addr::LOCALHOST,
+                port: 5000,
+                reconciliation: String::new(),
+                tls: None,
+            },
+            secrets: None,
+            services: HashMap::new(),
+            auxillary_services: None,
+        };
+
+        let docker_client = FakeDockerClient::default();
+
+        let reconciler = Reconciler::new(
+            Arc::new(RwLock::new(registry)),
+            config_location,
+            config,
+            docker_client.clone(),
+        );
+
+        reconciler
+            .handle_diff(Diff::Addition {
+                name: "foobar".to_owned(),
+                definition: service,
+            })
+            .await?;
+
+        // Check we now have some containers in the Docker state
+        let lock = docker_client.state.read().await;
+        let containers = &lock.containers;
+
+        let container_id = containers.iter().find_map(|(id, image_and_tag)| {
+            image_and_tag.eq(&format!("{image}:{tag}")).then_some(id)
+        });
+
+        assert!(container_id.is_some());
+
+        Ok(())
+    }
+}

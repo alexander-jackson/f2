@@ -1,5 +1,6 @@
 /target
 Dockerfile
+Justfile
 
 *.sh
 *.yaml

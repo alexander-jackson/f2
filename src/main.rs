@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
+use docker::client::{Client, DockerClient};
 use rsa::RsaPrivateKey;
 use service_registry::ServiceRegistry;
 use tokio::sync::RwLock;
@@ -51,7 +52,10 @@ async fn main() -> Result<()> {
     let mut service_registry = ServiceRegistry::new();
     let private_key = config.get_private_key().await?;
 
+    let docker_client = Client::new("/var/run/docker.sock");
+
     start_services(
+        &docker_client,
         &config.services,
         &mut service_registry,
         private_key.as_ref(),
@@ -60,7 +64,7 @@ async fn main() -> Result<()> {
 
     // Start the auxillary services
     if let Some(services) = &config.auxillary_services {
-        start_auxillary_services(services, private_key.as_ref()).await?;
+        start_auxillary_services(&docker_client, services, private_key.as_ref()).await?;
     }
 
     let service_registry = Arc::new(RwLock::new(service_registry));
@@ -70,6 +74,7 @@ async fn main() -> Result<()> {
         Arc::clone(&service_registry),
         args.config_location.clone(),
         config,
+        docker_client,
     );
 
     let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
@@ -79,7 +84,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn start_services(
+async fn start_services<C: DockerClient>(
+    client: &C,
     services: &HashMap<String, Service>,
     service_registry: &mut ServiceRegistry,
     private_key: Option<&RsaPrivateKey>,
@@ -93,7 +99,7 @@ async fn start_services(
         tracing::info!("Starting {name} with tag {tag}");
 
         for _ in 0..service.replicas {
-            let details = create_and_start_container(&container, tag, private_key).await?;
+            let details = create_and_start_container(client, &container, tag, private_key).await?;
             service_registry.add_container(name, details);
         }
     }
@@ -101,14 +107,15 @@ async fn start_services(
     Ok(())
 }
 
-async fn start_auxillary_services(
+async fn start_auxillary_services<C: DockerClient>(
+    client: &C,
     services: &[AuxillaryService],
     private_key: Option<&RsaPrivateKey>,
 ) -> Result<()> {
     for service in services {
         let tag = &service.tag;
         let container = Container::from(&service.clone());
-        let details = create_and_start_container(&container, tag, private_key).await?;
+        let details = create_and_start_container(client, &container, tag, private_key).await?;
 
         tracing::info!("Started {} on port {}", service.image, details.addr);
     }
