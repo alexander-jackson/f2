@@ -66,8 +66,7 @@ impl<C: DockerClient> Reconciler<C> {
                 new_definition,
             } => {
                 let read_lock = self.registry.read().await;
-                let definition = read_lock.get_definition(&name).unwrap();
-                let replicas = definition.replicas;
+                let replicas = new_definition.replicas;
                 let running_containers: IndexSet<_> =
                     read_lock.get_running_containers(&name).unwrap().clone();
 
@@ -336,6 +335,66 @@ pub mod tests {
         let containers = &lock.containers;
 
         assert!(containers.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_handle_scale_up_of_service() -> Result<()> {
+        let mut registry = ServiceRegistry::new();
+
+        let service = "foobar";
+        let image = "alexanderjackson/f2";
+        let tag = "latest";
+
+        let docker_client = FakeDockerClient::default();
+
+        let service_definition = Service {
+            image: image.to_owned(),
+            tag: tag.to_owned(),
+            port: 5000,
+            replicas: 1,
+            host: String::new(),
+            path_prefix: None,
+            environment: None,
+        };
+
+        let mut altered_definition = service_definition.clone();
+        altered_definition.replicas += 1;
+
+        let image_and_tag = format!("{image}:{tag}");
+        let id = docker_client
+            .create_container(&image_and_tag, &None)
+            .await?;
+
+        registry.define(service, service_definition);
+        registry.add_container(
+            service,
+            StartedContainerDetails {
+                id: id.clone(),
+                addr: Ipv4Addr::LOCALHOST,
+            },
+        );
+
+        let reconciler = create_reconciler(registry, docker_client.clone());
+
+        let diff = Diff::Alteration {
+            name: service.to_owned(),
+            new_definition: altered_definition,
+        };
+
+        reconciler.handle_diff(diff).await?;
+
+        // Check we now have 2 containers for this image and tag
+        let lock = docker_client.state.read().await;
+        let containers = &lock.containers;
+        let matching_containers = containers.iter().filter(|c| c.1 == image_and_tag).count();
+
+        assert_eq!(matching_containers, 2);
+
+        // Neither of these containers are our original one
+        let original_container = containers.iter().find(|c| c.0 == id);
+        assert!(original_container.is_none());
 
         Ok(())
     }
