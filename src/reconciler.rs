@@ -178,6 +178,7 @@ pub mod tests {
     use crate::args::ConfigurationLocation;
     use crate::common::Environment;
     use crate::config::{AlbConfig, Config, Diff, Service};
+    use crate::docker::api::StartedContainerDetails;
     use crate::docker::client::DockerClient;
     use crate::docker::models::{ContainerId, ImageSummary};
     use crate::reconciler::Reconciler;
@@ -213,8 +214,6 @@ pub mod tests {
         ) -> Result<ContainerId> {
             let container_id = ContainerId::random();
 
-            println!("Creating a new container, {image}, {container_id}");
-
             let mut lock = self.state.write().await;
             lock.containers
                 .push((container_id.clone(), image.to_owned()));
@@ -231,16 +230,40 @@ pub mod tests {
         }
 
         async fn remove_container(&self, id: &ContainerId) -> Result<()> {
-            println!("Removing a container: {}", id.0);
+            let mut lock = self.state.write().await;
+            lock.containers.retain(|c| c.0 != *id);
 
             Ok(())
         }
     }
 
+    fn create_reconciler<C: DockerClient>(
+        registry: ServiceRegistry,
+        docker_client: C,
+    ) -> Reconciler<C> {
+        let config = Config {
+            alb: AlbConfig {
+                addr: Ipv4Addr::LOCALHOST,
+                port: 5000,
+                reconciliation: String::new(),
+                tls: None,
+            },
+            secrets: None,
+            services: HashMap::new(),
+            auxillary_services: None,
+        };
+
+        Reconciler::new(
+            Arc::new(RwLock::new(registry)),
+            ConfigurationLocation::Filesystem(PathBuf::new()),
+            config,
+            docker_client,
+        )
+    }
+
     #[tokio::test]
     async fn can_handle_addition_of_services() -> Result<()> {
         let registry = ServiceRegistry::new();
-        let config_location = ConfigurationLocation::Filesystem(PathBuf::new());
 
         let image = "alexanderjackson/f2";
         let tag = "latest";
@@ -255,26 +278,8 @@ pub mod tests {
             environment: None,
         };
 
-        let config = Config {
-            alb: AlbConfig {
-                addr: Ipv4Addr::LOCALHOST,
-                port: 5000,
-                reconciliation: String::new(),
-                tls: None,
-            },
-            secrets: None,
-            services: HashMap::new(),
-            auxillary_services: None,
-        };
-
         let docker_client = FakeDockerClient::default();
-
-        let reconciler = Reconciler::new(
-            Arc::new(RwLock::new(registry)),
-            config_location,
-            config,
-            docker_client.clone(),
-        );
+        let reconciler = create_reconciler(registry, docker_client.clone());
 
         reconciler
             .handle_diff(Diff::Addition {
@@ -292,6 +297,45 @@ pub mod tests {
         });
 
         assert!(container_id.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_handle_removal_of_service() -> Result<()> {
+        let mut registry = ServiceRegistry::new();
+
+        let service = "foobar";
+        let image = "alexanderjackson/f2";
+        let tag = "latest";
+
+        let docker_client = FakeDockerClient::default();
+
+        let id = docker_client
+            .create_container(&format!("{image}:{tag}"), &None)
+            .await?;
+
+        registry.add_container(
+            service,
+            StartedContainerDetails {
+                id,
+                addr: Ipv4Addr::LOCALHOST,
+            },
+        );
+
+        let reconciler = create_reconciler(registry, docker_client.clone());
+
+        let diff = Diff::Removal {
+            name: service.to_owned(),
+        };
+
+        reconciler.handle_diff(diff).await?;
+
+        // Check the state is now empty
+        let lock = docker_client.state.read().await;
+        let containers = &lock.containers;
+
+        assert!(containers.is_empty());
 
         Ok(())
     }
