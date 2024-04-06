@@ -26,10 +26,6 @@ impl ServiceRegistry {
         Self::default()
     }
 
-    pub fn get_definition(&self, service: &str) -> Option<&Service> {
-        self.definitions.get(service)
-    }
-
     pub fn define(&mut self, service: &str, definition: Service) {
         self.definitions.insert(service.to_string(), definition);
     }
@@ -123,7 +119,7 @@ mod tests {
 
         registry.define(service, definition.clone());
 
-        let found = registry.get_definition(service);
+        let found = registry.definitions.get(service);
 
         assert_eq!(found, Some(&definition));
     }
@@ -136,11 +132,11 @@ mod tests {
 
         registry.define(service, definition);
 
-        assert!(registry.get_definition(service).is_some());
+        assert!(registry.definitions.get(service).is_some());
 
         registry.undefine(service);
 
-        assert!(registry.get_definition(service).is_none());
+        assert!(registry.definitions.get(service).is_none());
     }
 
     #[test]
