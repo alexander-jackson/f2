@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
+use aws_config::BehaviorVersion;
 use color_eyre::eyre::{Context, Result};
 use rsa::RsaPrivateKey;
 use serde::Deserialize;
@@ -140,7 +141,7 @@ impl ExternalBytes {
         let bytes = match self {
             Self::Filesystem { path } => tokio::fs::read(path).await?,
             Self::S3 { bucket, key } => {
-                let config = aws_config::load_from_env().await;
+                let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
                 let client = aws_sdk_s3::Client::new(&config);
 
                 let response = client.get_object().bucket(bucket).key(key).send().await?;
