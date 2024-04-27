@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::sync::Arc;
 
@@ -9,16 +9,17 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Client, Server};
 use hyper_rustls::TlsAcceptor;
 use rand::prelude::{SeedableRng, SmallRng};
-use rustls::server::ResolvesServerCertUsingSni;
-use rustls::sign::{any_supported_type, CertifiedKey};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::config::TlsConfig;
+use crate::config::{TlsConfig, TlsSecrets};
 use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
+use self::tls::CertificateResolver;
+
 mod proxy;
+mod tls;
 
 #[derive(Debug)]
 pub struct LoadBalancer<C: DockerClient> {
@@ -69,7 +70,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         let reconciler = Arc::clone(&self.reconciler);
 
         if let Some(tls) = tls {
-            let acceptor = build_tls_acceptor(listener, tls).await?;
+            let acceptor = build_tls_acceptor(listener, tls.domains).await?;
             let server = Server::builder(acceptor);
 
             let service = make_service_fn(move |_| {
@@ -125,15 +126,11 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
     }
 }
 
-async fn build_tls_acceptor(listener: TcpListener, tls: TlsConfig) -> Result<TlsAcceptor> {
-    let mut certificate_resolver = ResolvesServerCertUsingSni::new();
-
-    for (domain, secrets) in tls.domains {
-        let (cert, key) = secrets.resolve_files().await?;
-        let certified_key = parse_certified_key(&cert, &key)?;
-
-        certificate_resolver.add(&domain, certified_key)?;
-    }
+async fn build_tls_acceptor(
+    listener: TcpListener,
+    domains: HashMap<String, TlsSecrets>,
+) -> Result<TlsAcceptor> {
+    let certificate_resolver = CertificateResolver::new(&domains).await?;
 
     let config = rustls::ServerConfig::builder()
         .with_safe_defaults()
@@ -148,29 +145,6 @@ async fn build_tls_acceptor(listener: TcpListener, tls: TlsConfig) -> Result<Tls
         .with_incoming(incoming);
 
     Ok(acceptor)
-}
-
-fn parse_certified_key(cert: &[u8], key: &[u8]) -> Result<CertifiedKey> {
-    let mut cert = Cursor::new(cert);
-    let mut key = Cursor::new(key);
-
-    let cert: Vec<_> = rustls_pemfile::certs(&mut cert)?
-        .into_iter()
-        .map(rustls::Certificate)
-        .collect();
-
-    let keys = rustls_pemfile::pkcs8_private_keys(&mut key)?;
-    let key = rustls::PrivateKey(keys[0].clone());
-    let key = any_supported_type(&key)?;
-
-    let certified_key = CertifiedKey {
-        cert,
-        key,
-        ocsp: None,
-        sct_list: None,
-    };
-
-    Ok(certified_key)
 }
 
 #[cfg(test)]
