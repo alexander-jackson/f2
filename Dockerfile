@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.71.1-alpine3.18 AS chef
+FROM lukemathwalker/cargo-chef:0.1.67-rust-1.80.0-alpine3.20 AS chef
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 
 # Install anything we need for `musl` builds and set the environment variables
-RUN apk add --no-cache musl build-base clang llvm14
+RUN apk add --no-cache musl build-base clang llvm18
 RUN rustup target add x86_64-unknown-linux-musl
 
 ENV CC_x86_64_unknown_linux_musl=clang
