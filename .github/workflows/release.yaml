@@ -9,7 +9,7 @@ jobs:
     name: Docker Build and Push
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Generate tag
         id: tag
         run: echo "::set-output name=value::$(date '+%Y%m%d-%H%M')"
@@ -18,7 +18,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      - uses: docker/build-push-action@v2
+      - uses: docker/build-push-action@v6
         with:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/f2:${{ steps.tag.outputs.value }}
