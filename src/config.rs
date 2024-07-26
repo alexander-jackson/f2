@@ -81,7 +81,7 @@ impl Config {
 
         // Check if any services have been added
         for (name, definition) in &right.services {
-            if self.services.get(name).is_none() {
+            if !self.services.contains_key(name) {
                 diff.push(Diff::Addition {
                     name: name.into(),
                     definition: definition.clone(),
