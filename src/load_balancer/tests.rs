@@ -25,13 +25,10 @@ fn create_service<T: Into<Option<&'static str>>>(
     path_prefix: T,
 ) -> Service {
     Service {
-        image: String::from("account/application"),
-        tag: String::from("20220813-1803"),
         port,
-        replicas: 1,
         host: String::from(host),
         path_prefix: path_prefix.into().map(ToOwned::to_owned),
-        environment: None,
+        ..Default::default()
     }
 }
 

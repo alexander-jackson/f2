@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use color_eyre::eyre::{self, Result};
@@ -21,6 +22,7 @@ pub trait DockerClient {
         &self,
         image: &str,
         environment: &Option<Environment>,
+        volumes: &HashMap<String, String>,
     ) -> Result<ContainerId>;
 
     async fn start_container(&self, id: &ContainerId) -> Result<()>;
@@ -79,6 +81,7 @@ impl DockerClient for Client {
         &self,
         image: &str,
         environment: &Option<Environment>,
+        volumes: &HashMap<String, String>,
     ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
 
@@ -87,6 +90,7 @@ impl DockerClient for Client {
         let options = CreateContainerOptions {
             image: String::from(image),
             env,
+            volumes,
         };
 
         tracing::info!(%image, "Creating a container");

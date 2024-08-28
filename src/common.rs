@@ -46,6 +46,7 @@ pub struct Container {
     pub image: String,
     pub target_port: u16,
     pub environment: Option<EncryptedEnvironment>,
+    pub volumes: HashMap<String, String>,
 }
 
 impl Container {
@@ -83,6 +84,7 @@ impl From<&Service> for Container {
             image: service.image.clone(),
             target_port: service.port,
             environment,
+            volumes: service.volumes.clone(),
         }
     }
 }
@@ -98,6 +100,7 @@ impl From<&AuxillaryService> for Container {
             image: service.image.clone(),
             target_port: service.port,
             environment,
+            volumes: Default::default(),
         }
     }
 }

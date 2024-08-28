@@ -1,5 +1,5 @@
-use std::fmt;
 use std::net::Ipv4Addr;
+use std::{collections::HashMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
@@ -33,9 +33,10 @@ pub struct ImageSummary {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct CreateContainerOptions {
+pub struct CreateContainerOptions<'a> {
     pub image: String,
     pub env: Vec<String>,
+    pub volumes: &'a HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]

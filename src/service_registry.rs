@@ -90,33 +90,12 @@ mod tests {
     use crate::docker::models::ContainerId;
     use crate::service_registry::ServiceRegistry;
 
-    fn some_service() -> Service {
-        Service {
-            image: String::from("repo/service"),
-            tag: String::from("latest"),
-            port: 8080,
-            replicas: 1,
-            host: String::from("example.com"),
-            path_prefix: None,
-            environment: None,
-        }
-    }
-
     #[test]
     fn can_store_and_fetch_service_definitions() {
         let mut registry = ServiceRegistry::new();
         let service = "backend";
 
-        let definition = Service {
-            image: String::from("repo/service"),
-            tag: String::from("latest"),
-            port: 8080,
-            replicas: 1,
-            host: String::from("example.com"),
-            path_prefix: None,
-            environment: None,
-        };
-
+        let definition = Service::default();
         registry.define(service, definition.clone());
 
         let found = registry.definitions.get(service);
@@ -128,7 +107,7 @@ mod tests {
     fn can_remove_service_definitions() {
         let mut registry = ServiceRegistry::new();
         let service = "backend";
-        let definition = some_service();
+        let definition = Service::default();
 
         registry.define(service, definition);
 
@@ -183,13 +162,10 @@ mod tests {
         path_prefix: Option<String>,
     ) {
         let service = Service {
-            image: String::from("something"),
-            tag: String::from("latest"),
-            port: 80,
             replicas: 1,
             host: String::from(host),
             path_prefix,
-            environment: None,
+            ..Default::default()
         };
 
         registry.define(name, service);
