@@ -216,7 +216,8 @@ pub mod tests {
         async fn create_container(
             &self,
             image: &str,
-            environment: &Option<Environment>,
+            _environment: &Option<Environment>,
+            _volumes: &HashMap<String, String>,
         ) -> Result<ContainerId> {
             let container_id = ContainerId::random();
 
@@ -227,11 +228,11 @@ pub mod tests {
             Ok(container_id)
         }
 
-        async fn start_container(&self, id: &ContainerId) -> Result<()> {
+        async fn start_container(&self, _id: &ContainerId) -> Result<()> {
             Ok(())
         }
 
-        async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr> {
+        async fn get_container_ip(&self, _id: &ContainerId) -> Result<Ipv4Addr> {
             Ok(Ipv4Addr::LOCALHOST)
         }
 
@@ -277,11 +278,8 @@ pub mod tests {
         let service = Service {
             image: image.to_owned(),
             tag: tag.to_owned(),
-            port: 5000,
             replicas: 1,
-            host: "localhost".to_owned(),
-            path_prefix: None,
-            environment: None,
+            ..Default::default()
         };
 
         let docker_client = FakeDockerClient::default();
@@ -318,7 +316,7 @@ pub mod tests {
         let docker_client = FakeDockerClient::default();
 
         let id = docker_client
-            .create_container(&format!("{image}:{tag}"), &None)
+            .create_container(&format!("{image}:{tag}"), &None, &HashMap::new())
             .await?;
 
         registry.add_container(
@@ -359,11 +357,8 @@ pub mod tests {
         let service_definition = Service {
             image: image.to_owned(),
             tag: tag.to_owned(),
-            port: 5000,
             replicas: 1,
-            host: String::new(),
-            path_prefix: None,
-            environment: None,
+            ..Default::default()
         };
 
         let mut altered_definition = service_definition.clone();
@@ -371,7 +366,7 @@ pub mod tests {
 
         let image_and_tag = format!("{image}:{tag}");
         let id = docker_client
-            .create_container(&image_and_tag, &None)
+            .create_container(&image_and_tag, &None, &HashMap::new())
             .await?;
 
         registry.define(service, service_definition);

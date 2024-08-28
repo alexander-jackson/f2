@@ -156,7 +156,7 @@ impl ExternalBytes {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
 pub struct Service {
     pub image: String,
     pub tag: String,
@@ -165,6 +165,7 @@ pub struct Service {
     pub host: String,
     pub path_prefix: Option<String>,
     pub environment: Option<HashMap<String, String>>,
+    pub volumes: HashMap<String, String>,
 }
 
 impl Hash for Service {
@@ -191,18 +192,7 @@ mod tests {
 
     fn some_config() -> Config {
         let mut services = HashMap::new();
-        services.insert(
-            String::from("backend"),
-            Service {
-                image: String::from("org/backend"),
-                tag: String::from("1"),
-                port: 5000,
-                replicas: 1,
-                host: String::from("example.com"),
-                path_prefix: None,
-                environment: None,
-            },
-        );
+        services.insert(String::from("backend"), Service::default());
 
         Config {
             alb: AlbConfig {
@@ -271,16 +261,7 @@ mod tests {
         let left = some_config();
         let mut right = left.clone();
 
-        let service = Service {
-            image: String::from("org/frontend"),
-            tag: String::from("latest"),
-            port: 80,
-            replicas: 1,
-            host: String::from("example.com"),
-            path_prefix: None,
-            environment: None,
-        };
-
+        let service = Service::default();
         right.services.insert("frontend".into(), service.clone());
 
         let diff = left.diff(&right);

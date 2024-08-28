@@ -28,8 +28,11 @@ pub async fn create_and_start_container<C: DockerClient>(
     let target_port = container.target_port;
 
     let environment = container.decrypt_environment(private_key)?;
+    let volumes = &container.volumes;
 
-    let id = client.create_container(&name, &environment).await?;
+    let id = client
+        .create_container(&name, &environment, volumes)
+        .await?;
 
     client.start_container(&id).await?;
 
