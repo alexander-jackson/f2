@@ -162,7 +162,6 @@ mod tests {
         path_prefix: Option<String>,
     ) {
         let service = Service {
-            replicas: 1,
             host: String::from(host),
             path_prefix,
             ..Default::default()
