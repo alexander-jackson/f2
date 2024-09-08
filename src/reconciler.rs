@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
 use crate::common::Container;
-use crate::config::{Config, Diff, Service};
+use crate::config::{Config, Diff, ReplicaCount, Service};
 use crate::docker::api::{create_and_start_container, StartedContainerDetails};
 use crate::docker::client::DockerClient;
 use crate::service_registry::ServiceRegistry;
@@ -70,7 +70,7 @@ impl<C: DockerClient> Reconciler<C> {
         &self,
         name: &str,
         new_definition: Service,
-        replicas: u32,
+        replicas: ReplicaCount,
     ) -> Result<()> {
         // Keep the locks short, create everything then add to the LB
         let mut started_containers = Vec::new();
@@ -78,7 +78,7 @@ impl<C: DockerClient> Reconciler<C> {
         let private_key = self.config.read().await.get_private_key().await?;
         let container = Container::from(&new_definition);
 
-        for _ in 0..replicas {
+        for _ in 0..replicas.get() {
             let details = create_and_start_container(
                 &self.docker_client,
                 &container,
@@ -183,7 +183,7 @@ pub mod tests {
 
     use crate::args::ConfigurationLocation;
     use crate::common::Environment;
-    use crate::config::{AlbConfig, Config, Diff, Service};
+    use crate::config::{AlbConfig, Config, Diff, ReplicaCount, Service};
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::client::DockerClient;
     use crate::docker::models::{ContainerId, ImageSummary};
@@ -278,7 +278,6 @@ pub mod tests {
         let service = Service {
             image: image.to_owned(),
             tag: tag.to_owned(),
-            replicas: 1,
             ..Default::default()
         };
 
@@ -357,12 +356,11 @@ pub mod tests {
         let service_definition = Service {
             image: image.to_owned(),
             tag: tag.to_owned(),
-            replicas: 1,
             ..Default::default()
         };
 
         let mut altered_definition = service_definition.clone();
-        altered_definition.replicas += 1;
+        altered_definition.replicas = ReplicaCount::try_from(2)?;
 
         let image_and_tag = format!("{image}:{tag}");
         let id = docker_client

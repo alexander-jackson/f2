@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::net::Ipv4Addr;
+use std::num::NonZeroU8;
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use aws_config::BehaviorVersion;
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
@@ -156,12 +158,39 @@ impl ExternalBytes {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct ReplicaCount(NonZeroU8);
+
+impl TryFrom<u8> for ReplicaCount {
+    type Error = color_eyre::Report;
+
+    fn try_from(value: u8) -> Result<Self> {
+        NonZeroU8::new(value)
+            .map(Self)
+            .ok_or_else(|| eyre!("invalid value provided for replica count"))
+    }
+}
+
+impl Default for ReplicaCount {
+    fn default() -> Self {
+        Self(NonZeroU8::MIN)
+    }
+}
+
+impl Deref for ReplicaCount {
+    type Target = NonZeroU8;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
 pub struct Service {
     pub image: String,
     pub tag: String,
     pub port: u16,
-    pub replicas: u32,
+    pub replicas: ReplicaCount,
     pub host: String,
     pub path_prefix: Option<String>,
     pub environment: Option<HashMap<String, String>>,
