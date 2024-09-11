@@ -193,7 +193,9 @@ pub struct Service {
     pub replicas: ReplicaCount,
     pub host: String,
     pub path_prefix: Option<String>,
-    pub environment: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub environment: HashMap<String, String>,
+    #[serde(default)]
     pub volumes: HashMap<String, String>,
 }
 
@@ -209,7 +211,8 @@ pub struct AuxillaryService {
     pub image: String,
     pub tag: String,
     pub port: u16,
-    pub environment: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub environment: HashMap<String, String>,
 }
 
 #[cfg(test)]
@@ -272,7 +275,7 @@ mod tests {
         let mut environment = HashMap::new();
         environment.insert("NEW_PROPERTY".into(), "some-value".into());
 
-        right.services.get_mut("backend").unwrap().environment = Some(environment);
+        right.services.get_mut("backend").unwrap().environment = environment;
 
         let diff = left.diff(&right);
 
