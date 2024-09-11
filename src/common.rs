@@ -45,7 +45,7 @@ pub struct Environment {
 pub struct Container {
     pub image: String,
     pub target_port: u16,
-    pub environment: Option<EncryptedEnvironment>,
+    pub environment: EncryptedEnvironment,
     pub volumes: HashMap<String, String>,
 }
 
@@ -54,11 +54,7 @@ impl Container {
         &self,
         private_key: Option<&RsaPrivateKey>,
     ) -> Result<Option<Environment>> {
-        let Some(ref environment) = self.environment else {
-            return Ok(None);
-        };
-
-        let decrypted = environment.decrypt(private_key)?;
+        let decrypted = self.environment.decrypt(private_key)?;
 
         Ok(Some(decrypted))
     }
@@ -75,15 +71,12 @@ impl fmt::Debug for Container {
 
 impl From<&Service> for Container {
     fn from(service: &Service) -> Self {
-        let environment = service
-            .environment
-            .clone()
-            .map(|variables| EncryptedEnvironment { variables });
-
         Self {
             image: service.image.clone(),
             target_port: service.port,
-            environment,
+            environment: EncryptedEnvironment {
+                variables: service.environment.clone(),
+            },
             volumes: service.volumes.clone(),
         }
     }
@@ -91,15 +84,12 @@ impl From<&Service> for Container {
 
 impl From<&AuxillaryService> for Container {
     fn from(service: &AuxillaryService) -> Self {
-        let environment = service
-            .environment
-            .clone()
-            .map(|variables| EncryptedEnvironment { variables });
-
         Self {
             image: service.image.clone(),
             target_port: service.port,
-            environment,
+            environment: EncryptedEnvironment {
+                variables: service.environment.clone(),
+            },
             volumes: Default::default(),
         }
     }
