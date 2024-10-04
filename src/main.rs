@@ -19,6 +19,7 @@ mod common;
 mod config;
 mod crypto;
 mod docker;
+mod health;
 mod load_balancer;
 mod reconciler;
 mod service_registry;
