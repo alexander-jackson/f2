@@ -210,4 +210,60 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn more_complex_health_checks_work_correctly() -> Result<()> {
+        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+        let listener = TcpListener::bind(&addr)?;
+
+        let requests = Arc::new(AtomicU32::new(1));
+
+        // service responds with a 500, then two 200s, then 500s for the rest of time
+        let service = make_service_fn(move |_| {
+            let requests = Arc::clone(&requests);
+
+            async move {
+                Ok::<_, Report>(service_fn(move |_| {
+                    let requests = Arc::clone(&requests);
+
+                    async move {
+                        let status = match requests.fetch_add(1, Ordering::SeqCst) {
+                            2 | 3 => 200,
+                            _ => 500,
+                        };
+
+                        Ok::<_, Report>(
+                            Response::builder()
+                                .status(status)
+                                .body(Body::default())
+                                .unwrap(),
+                        )
+                    }
+                }))
+            }
+        });
+
+        let resolved_addr = listener.local_addr()?;
+
+        tokio::spawn(async move {
+            let server = Server::from_tcp(listener)
+                .expect("Failed to create server")
+                .serve(service);
+
+            server.await.expect("Failed to run server");
+        });
+
+        let target = format!("http://{resolved_addr}");
+        let target = Uri::from_str(&target)?;
+
+        // Need 3 of either to mark the health check as complete
+        let configuration = HealthCheckConfiguration::new(Duration::from_millis(2), 3, 3);
+        let health_check = HealthCheck::new(target, configuration);
+
+        let result = health_check.run().await?;
+
+        assert_eq!(result, HealthCheckResult::Failure);
+
+        Ok(())
+    }
 }
