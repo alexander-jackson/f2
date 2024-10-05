@@ -90,7 +90,6 @@ mod tests {
         let requests = Arc::new(AtomicU32::new(1));
         let behaviour = Arc::new(behaviour);
 
-        // service responds with 2 500s and then a 200
         let service = make_service_fn(move |_| {
             let requests = Arc::clone(&requests);
             let behaviour = Arc::clone(&behaviour);
