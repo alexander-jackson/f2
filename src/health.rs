@@ -81,23 +81,20 @@ mod tests {
 
     use crate::health::{HealthCheck, HealthCheckConfiguration, HealthCheckResult};
 
-    fn spawn_server<F: Fn(u32) -> StatusCode + Send + Sync + 'static>(
+    fn spawn_server<F: Fn(u32) -> StatusCode + Copy + Send + Sync + 'static>(
         behaviour: F,
     ) -> Result<SocketAddr> {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
         let listener = TcpListener::bind(&addr)?;
 
         let requests = Arc::new(AtomicU32::new(1));
-        let behaviour = Arc::new(behaviour);
 
         let service = make_service_fn(move |_| {
             let requests = Arc::clone(&requests);
-            let behaviour = Arc::clone(&behaviour);
 
             async move {
                 Ok::<_, Report>(service_fn(move |_| {
                     let requests = Arc::clone(&requests);
-                    let behaviour = Arc::clone(&behaviour);
 
                     async move {
                         let status = behaviour(requests.fetch_add(1, Ordering::SeqCst));
