@@ -69,7 +69,7 @@ impl HealthCheck {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
     use std::str::FromStr;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
@@ -77,104 +77,31 @@ mod tests {
 
     use color_eyre::eyre::{Report, Result};
     use hyper::service::{make_service_fn, service_fn};
-    use hyper::{Body, Response, Server, Uri};
+    use hyper::{Body, Response, Server, StatusCode, Uri};
 
     use crate::health::{HealthCheck, HealthCheckConfiguration, HealthCheckResult};
 
-    #[tokio::test]
-    async fn can_perform_health_checks() -> Result<()> {
-        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        let listener = TcpListener::bind(&addr)?;
-
-        let service = make_service_fn(move |_| async move {
-            Ok::<_, Report>(service_fn(move |_| async move {
-                Ok::<_, Report>(Response::new(Body::from("OK")))
-            }))
-        });
-
-        let resolved_addr = listener.local_addr()?;
-
-        tokio::spawn(async move {
-            let server = Server::from_tcp(listener)
-                .expect("Failed to create server")
-                .serve(service);
-
-            server.await.expect("Failed to run server");
-        });
-
-        let target = format!("http://{resolved_addr}");
-        let target = Uri::from_str(&target)?;
-
-        let configuration = HealthCheckConfiguration::new(Duration::from_millis(2), 1, 1);
-        let health_check = HealthCheck::new(target, configuration);
-
-        let result = health_check.run().await?;
-
-        assert_eq!(result, HealthCheckResult::Success);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn health_checks_can_be_failed() -> Result<()> {
-        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        let listener = TcpListener::bind(&addr)?;
-
-        // service always responds with a 500
-        let service = make_service_fn(move |_| async move {
-            Ok::<_, Report>(service_fn(move |_| async move {
-                Ok::<_, Report>(
-                    Response::builder()
-                        .status(500)
-                        .body(Body::default())
-                        .unwrap(),
-                )
-            }))
-        });
-
-        let resolved_addr = listener.local_addr()?;
-
-        tokio::spawn(async move {
-            let server = Server::from_tcp(listener)
-                .expect("Failed to create server")
-                .serve(service);
-
-            server.await.expect("Failed to run server");
-        });
-
-        let target = format!("http://{resolved_addr}");
-        let target = Uri::from_str(&target)?;
-
-        let configuration = HealthCheckConfiguration::new(Duration::from_millis(2), 1, 1);
-        let health_check = HealthCheck::new(target, configuration);
-
-        let result = health_check.run().await?;
-
-        assert_eq!(result, HealthCheckResult::Failure);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn health_checks_are_retried() -> Result<()> {
+    fn spawn_server<F: Fn(u32) -> StatusCode + Send + Sync + 'static>(
+        behaviour: F,
+    ) -> Result<SocketAddr> {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
         let listener = TcpListener::bind(&addr)?;
 
         let requests = Arc::new(AtomicU32::new(1));
+        let behaviour = Arc::new(behaviour);
 
         // service responds with 2 500s and then a 200
         let service = make_service_fn(move |_| {
             let requests = Arc::clone(&requests);
+            let behaviour = Arc::clone(&behaviour);
 
             async move {
                 Ok::<_, Report>(service_fn(move |_| {
                     let requests = Arc::clone(&requests);
+                    let behaviour = Arc::clone(&behaviour);
 
                     async move {
-                        let status = match requests.fetch_add(1, Ordering::SeqCst) {
-                            3 => 200,
-                            _ => 500,
-                        };
+                        let status = behaviour(requests.fetch_add(1, Ordering::SeqCst));
 
                         Ok::<_, Report>(
                             Response::builder()
@@ -196,6 +123,53 @@ mod tests {
 
             server.await.expect("Failed to run server");
         });
+
+        Ok(resolved_addr)
+    }
+
+    #[tokio::test]
+    async fn can_perform_health_checks() -> Result<()> {
+        // service always responds with a 200
+        let resolved_addr = spawn_server(|_| StatusCode::OK)?;
+
+        let target = format!("http://{resolved_addr}");
+        let target = Uri::from_str(&target)?;
+
+        let configuration = HealthCheckConfiguration::new(Duration::from_millis(2), 1, 1);
+        let health_check = HealthCheck::new(target, configuration);
+
+        let result = health_check.run().await?;
+
+        assert_eq!(result, HealthCheckResult::Success);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn health_checks_can_be_failed() -> Result<()> {
+        // service always responds with a 500
+        let resolved_addr = spawn_server(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let target = format!("http://{resolved_addr}");
+        let target = Uri::from_str(&target)?;
+
+        let configuration = HealthCheckConfiguration::new(Duration::from_millis(2), 1, 1);
+        let health_check = HealthCheck::new(target, configuration);
+
+        let result = health_check.run().await?;
+
+        assert_eq!(result, HealthCheckResult::Failure);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn health_checks_are_retried() -> Result<()> {
+        // service responds with 2 500s and then a 200
+        let resolved_addr = spawn_server(|requests| match requests {
+            3 => StatusCode::OK,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;
@@ -213,45 +187,11 @@ mod tests {
 
     #[tokio::test]
     async fn more_complex_health_checks_work_correctly() -> Result<()> {
-        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        let listener = TcpListener::bind(&addr)?;
-
-        let requests = Arc::new(AtomicU32::new(1));
-
         // service responds with a 500, then two 200s, then 500s for the rest of time
-        let service = make_service_fn(move |_| {
-            let requests = Arc::clone(&requests);
-
-            async move {
-                Ok::<_, Report>(service_fn(move |_| {
-                    let requests = Arc::clone(&requests);
-
-                    async move {
-                        let status = match requests.fetch_add(1, Ordering::SeqCst) {
-                            2 | 3 => 200,
-                            _ => 500,
-                        };
-
-                        Ok::<_, Report>(
-                            Response::builder()
-                                .status(status)
-                                .body(Body::default())
-                                .unwrap(),
-                        )
-                    }
-                }))
-            }
-        });
-
-        let resolved_addr = listener.local_addr()?;
-
-        tokio::spawn(async move {
-            let server = Server::from_tcp(listener)
-                .expect("Failed to create server")
-                .serve(service);
-
-            server.await.expect("Failed to run server");
-        });
+        let resolved_addr = spawn_server(|requests| match requests {
+            2 | 3 => StatusCode::OK,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;
