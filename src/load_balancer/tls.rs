@@ -3,16 +3,19 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{eyre, Result};
+use itertools::Itertools;
+use rustls::crypto::ring::sign::any_supported_type;
+use rustls::pki_types::PrivateKeyDer;
 use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::sign::{any_supported_type, CertifiedKey};
+use rustls::sign::CertifiedKey;
 
 use crate::config::TlsSecrets;
 
 type Configuration = HashMap<String, TlsSecrets>;
 type Domains = HashMap<String, Arc<CertifiedKey>>;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct CertificateResolver {
     domains: ArcSwap<Domains>,
 }
@@ -46,20 +49,19 @@ fn parse_certified_key(cert: &[u8], key: &[u8]) -> Result<CertifiedKey> {
     let mut cert = Cursor::new(cert);
     let mut key = Cursor::new(key);
 
-    let cert: Vec<_> = rustls_pemfile::certs(&mut cert)?
-        .into_iter()
-        .map(rustls::Certificate)
-        .collect();
+    let cert: Vec<_> = rustls_pemfile::certs(&mut cert).try_collect()?;
 
-    let keys = rustls_pemfile::pkcs8_private_keys(&mut key)?;
-    let key = rustls::PrivateKey(keys[0].clone());
+    let keys = rustls_pemfile::pkcs8_private_keys(&mut key)
+        .next()
+        .ok_or_else(|| eyre!("failed to get private key"))??;
+
+    let key = PrivateKeyDer::Pkcs8(keys);
     let key = any_supported_type(&key)?;
 
     let certified_key = CertifiedKey {
         cert,
         key,
         ocsp: None,
-        sct_list: None,
     };
 
     Ok(certified_key)

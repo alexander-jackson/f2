@@ -3,7 +3,12 @@
 use std::time::Duration;
 
 use color_eyre::eyre::Result;
-use hyper::{Client, Uri};
+use http_body_util::combinators::BoxBody;
+use hyper::body::Bytes;
+use hyper::Uri;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum HealthCheckResult {
@@ -41,7 +46,8 @@ impl HealthCheck {
     }
 
     pub async fn run(&self) -> Result<HealthCheckResult> {
-        let client = Client::new();
+        let client: Client<HttpConnector, BoxBody<Bytes, hyper::Error>> =
+            Client::builder(TokioExecutor::new()).build_http();
 
         let mut successes = 0;
         let mut failures = 0;
@@ -53,8 +59,6 @@ impl HealthCheck {
                 Ok(res) if res.status().is_success() => successes += 1,
                 _ => failures += 1,
             }
-
-            dbg!(successes, failures);
 
             if successes >= self.configuration.success_threshold {
                 return Ok(HealthCheckResult::Success);
@@ -69,55 +73,62 @@ impl HealthCheck {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::str::FromStr;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
     use color_eyre::eyre::{Report, Result};
-    use hyper::service::{make_service_fn, service_fn};
-    use hyper::{Body, Response, Server, StatusCode, Uri};
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+    use hyper::service::service_fn;
+    use hyper::{Response, StatusCode, Uri};
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use tokio::net::TcpListener;
 
     use crate::health::{HealthCheck, HealthCheckConfiguration, HealthCheckResult};
 
-    fn spawn_server<F: Fn(u32) -> StatusCode + Copy + Send + Sync + 'static>(
+    async fn spawn_server<F: Fn(u32) -> StatusCode + Copy + Send + Sync + 'static>(
         behaviour: F,
     ) -> Result<SocketAddr> {
         let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        let listener = TcpListener::bind(&addr)?;
-
-        let requests = Arc::new(AtomicU32::new(1));
-
-        let service = make_service_fn(move |_| {
-            let requests = Arc::clone(&requests);
-
-            async move {
-                Ok::<_, Report>(service_fn(move |_| {
-                    let requests = Arc::clone(&requests);
-
-                    async move {
-                        let status = behaviour(requests.fetch_add(1, Ordering::SeqCst));
-
-                        Ok::<_, Report>(
-                            Response::builder()
-                                .status(status)
-                                .body(Body::default())
-                                .unwrap(),
-                        )
-                    }
-                }))
-            }
-        });
+        let listener = TcpListener::bind(&addr).await?;
 
         let resolved_addr = listener.local_addr()?;
+        let requests = Arc::new(AtomicU32::new(1));
 
         tokio::spawn(async move {
-            let server = Server::from_tcp(listener)
-                .expect("Failed to create server")
-                .serve(service);
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(stream);
 
-            server.await.expect("Failed to run server");
+                let requests = Arc::clone(&requests);
+
+                if let Err(err) = Builder::new(TokioExecutor::new())
+                    .serve_connection(
+                        io,
+                        service_fn(move |_| {
+                            let requests = Arc::clone(&requests);
+
+                            async move {
+                                let status = behaviour(requests.fetch_add(1, Ordering::SeqCst));
+
+                                Ok::<_, Report>(
+                                    Response::builder()
+                                        .status(status)
+                                        .body(Full::<Bytes>::default())
+                                        .unwrap(),
+                                )
+                            }
+                        }),
+                    )
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            }
         });
 
         Ok(resolved_addr)
@@ -126,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn can_perform_health_checks() -> Result<()> {
         // service always responds with a 200
-        let resolved_addr = spawn_server(|_| StatusCode::OK)?;
+        let resolved_addr = spawn_server(|_| StatusCode::OK).await?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;
@@ -144,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn health_checks_can_be_failed() -> Result<()> {
         // service always responds with a 500
-        let resolved_addr = spawn_server(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let resolved_addr = spawn_server(|_| StatusCode::INTERNAL_SERVER_ERROR).await?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;
@@ -165,7 +176,8 @@ mod tests {
         let resolved_addr = spawn_server(|requests| match requests {
             3 => StatusCode::OK,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        })
+        .await?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;
@@ -187,7 +199,8 @@ mod tests {
         let resolved_addr = spawn_server(|requests| match requests {
             2 | 3 => StatusCode::OK,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        })
+        .await?;
 
         let target = format!("http://{resolved_addr}");
         let target = Uri::from_str(&target)?;

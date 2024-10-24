@@ -1,17 +1,20 @@
-use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::sync::Arc;
 
-use color_eyre::eyre::{Report, Result};
-use hyper::client::HttpConnector;
-use hyper::server::conn::AddrIncoming;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Client, Server};
-use hyper_rustls::TlsAcceptor;
+use color_eyre::eyre::Result;
+use hyper::body::Incoming;
+use hyper::service::service_fn;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol};
 use rand::prelude::{SeedableRng, SmallRng};
+use rustls::server::WebPkiClientVerifier;
+use rustls::RootCertStore;
+use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::config::{TlsConfig, TlsSecrets};
+use crate::config::TlsConfig;
 use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
@@ -24,7 +27,7 @@ mod tls;
 #[derive(Debug)]
 pub struct LoadBalancer<C: DockerClient> {
     service_registry: Arc<RwLock<ServiceRegistry>>,
-    client: Client<HttpConnector>,
+    client: Client<HttpConnector, Incoming>,
     rng: Arc<Mutex<SmallRng>>,
     reconciler_path: Arc<str>,
     reconciler: Arc<Reconciler<C>>,
@@ -36,7 +39,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         reconciler_path: &str,
         reconciler: Reconciler<C>,
     ) -> Self {
-        let client = Client::new();
+        let client = Client::builder(TokioExecutor::new()).build_http();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
         let reconciler_path = Arc::from(reconciler_path);
         let reconciler = Arc::new(reconciler);
@@ -50,101 +53,69 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         }
     }
 
-    pub async fn start_on(
-        &mut self,
-        addr: Ipv4Addr,
-        port: u16,
-        tls: Option<TlsConfig>,
-    ) -> Result<()> {
-        let addr = SocketAddrV4::new(addr, port);
-        let listener = TcpListener::bind(addr)?;
-
-        self.start(listener, tls).await
-    }
-
     pub async fn start(&mut self, listener: TcpListener, tls: Option<TlsConfig>) -> Result<()> {
-        let service_registry = Arc::clone(&self.service_registry);
-        let rng = Arc::clone(&self.rng);
-        let client = self.client.clone();
-        let reconciliation_path = Arc::clone(&self.reconciler_path);
-        let reconciler = Arc::clone(&self.reconciler);
+        let service_factory = |_| {
+            let service_registry = Arc::clone(&self.service_registry);
+            let rng = Arc::clone(&self.rng);
+            let client = self.client.clone();
+            let reconciler_path = Arc::clone(&self.reconciler_path);
+            let reconciler = Arc::clone(&self.reconciler);
+
+            service_fn(move |req| {
+                let service_registry = Arc::clone(&service_registry);
+                let rng = Arc::clone(&rng);
+                let client = client.clone();
+                let reconciler_path = Arc::clone(&reconciler_path);
+                let reconciler = Arc::clone(&reconciler);
+
+                async move {
+                    proxy::handle_request(
+                        service_registry,
+                        rng,
+                        client,
+                        reconciler_path,
+                        reconciler,
+                        req,
+                    )
+                    .await
+                }
+            })
+        };
 
         if let Some(tls) = tls {
-            let acceptor = build_tls_acceptor(listener, tls.domains).await?;
-            let server = Server::builder(acceptor);
+            let store = Arc::new(RootCertStore::empty());
+            let verifier = WebPkiClientVerifier::builder(store).build()?;
+            let resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
 
-            let service = make_service_fn(move |_| {
-                let service_registry = Arc::clone(&service_registry);
-                let rng = Arc::clone(&rng);
-                let client = client.clone();
-                let reconciliation_path = Arc::clone(&reconciliation_path);
-                let reconciler = Arc::clone(&reconciler);
+            let protocols = tls
+                .domains
+                .keys()
+                .map(|domain| (domain.to_owned(), Protocol::Public))
+                .collect();
 
-                async move {
-                    Ok::<_, Report>(service_fn(move |req| {
-                        proxy::handle_request(
-                            Arc::clone(&service_registry),
-                            Arc::clone(&rng),
-                            client.clone(),
-                            Arc::clone(&reconciliation_path),
-                            Arc::clone(&reconciler),
-                            req,
-                        )
-                    }))
-                }
-            });
+            let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);
 
-            server.serve(service).await?;
+            server.run(listener).await?;
         } else {
-            let server = Server::from_tcp(listener)?;
+            loop {
+                let (stream, _) = listener.accept().await?;
+                let io = TokioIo::new(stream);
 
-            let service = make_service_fn(move |_| {
-                let service_registry = Arc::clone(&service_registry);
-                let rng = Arc::clone(&rng);
-                let client = client.clone();
-                let reconciliation_path = Arc::clone(&reconciliation_path);
-                let reconciler = Arc::clone(&reconciler);
+                let service = service_factory(ConnectionContext { unit: None });
 
-                async move {
-                    Ok::<_, Report>(service_fn(move |req| {
-                        proxy::handle_request(
-                            Arc::clone(&service_registry),
-                            Arc::clone(&rng),
-                            client.clone(),
-                            Arc::clone(&reconciliation_path),
-                            Arc::clone(&reconciler),
-                            req,
-                        )
-                    }))
-                }
-            });
-
-            server.serve(service).await?;
-        };
+                tokio::spawn(async move {
+                    if let Err(e) = Builder::new(TokioExecutor::new())
+                        .serve_connection(io, service)
+                        .await
+                    {
+                        tracing::warn!(%e, "error handling connection");
+                    }
+                });
+            }
+        }
 
         Ok(())
     }
-}
-
-async fn build_tls_acceptor(
-    listener: TcpListener,
-    domains: HashMap<String, TlsSecrets>,
-) -> Result<TlsAcceptor> {
-    let certificate_resolver = CertificateResolver::new(&domains).await?;
-
-    let config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_cert_resolver(Arc::new(certificate_resolver));
-
-    let listener = tokio::net::TcpListener::from_std(listener)?;
-    let incoming = AddrIncoming::from_listener(listener)?;
-    let acceptor = TlsAcceptor::builder()
-        .with_tls_config(config)
-        .with_http11_alpn()
-        .with_incoming(incoming);
-
-    Ok(acceptor)
 }
 
 #[cfg(test)]

@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use docker::client::{Client, DockerClient};
 use rsa::RsaPrivateKey;
 use service_registry::ServiceRegistry;
+use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use crate::args::Args;
@@ -78,9 +80,10 @@ async fn main() -> Result<()> {
         docker_client,
     );
 
+    let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
     let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
 
-    load_balancer.start_on(addr, port, tls).await?;
+    load_balancer.start(listener, tls).await?;
 
     Ok(())
 }
