@@ -2,8 +2,13 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use color_eyre::eyre::{self, Result};
-use hyper::{Body, Method, Request, Uri};
+use http::Response;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::{Method, Request, Uri};
+use hyper_util::client::legacy::Client as HyperClient;
 use hyperlocal::{UnixClientExt, UnixConnector};
+use serde::de::DeserializeOwned;
 
 use crate::common::Environment;
 use crate::docker::models::{
@@ -33,7 +38,7 @@ pub trait DockerClient {
 }
 
 pub struct Client {
-    client: hyper::Client<UnixConnector, Body>,
+    client: HyperClient<UnixConnector, Full<Bytes>>,
     base: String,
 }
 
@@ -44,12 +49,9 @@ impl DockerClient for Client {
 
         tracing::info!(%uri, "Fetching images from the Docker server");
 
-        let mut response = self.client.get(uri).await?;
-        let bytes = hyper::body::to_bytes(response.body_mut()).await?;
+        let response = self.client.get(uri).await?;
 
-        let summaries = serde_json::from_slice(&bytes)?;
-
-        Ok(summaries)
+        Ok(deserialize_body(response).await?)
     }
 
     async fn pull_image(&self, image: &str, tag: &str) -> Result<()> {
@@ -61,9 +63,9 @@ impl DockerClient for Client {
         let request = Request::builder()
             .uri(uri)
             .method(Method::POST)
-            .body(Body::empty())?;
+            .body(Full::default())?;
 
-        let mut response = self.client.request(request).await?;
+        let response = self.client.request(request).await?;
 
         // Check the image actually exists on the remote
         eyre::ensure!(
@@ -72,7 +74,7 @@ impl DockerClient for Client {
         );
 
         // Make sure we read the whole body
-        hyper::body::to_bytes(response.body_mut()).await?;
+        read_body(response).await?;
 
         Ok(())
     }
@@ -101,11 +103,10 @@ impl DockerClient for Client {
             .uri(uri)
             .method(Method::POST)
             .header(hyper::http::header::CONTENT_TYPE, "application/json")
-            .body(Body::from(body))?;
+            .body(Full::new(Bytes::from(body)))?;
 
-        let mut response = self.client.request(request).await?;
-        let bytes = hyper::body::to_bytes(response.body_mut()).await?;
-        let body: CreateContainerResponse = serde_json::from_slice(&bytes)?;
+        let response = self.client.request(request).await?;
+        let body: CreateContainerResponse = deserialize_body(response).await?;
 
         tracing::info!(?body, "Container created successfully");
 
@@ -121,7 +122,7 @@ impl DockerClient for Client {
         let request = Request::builder()
             .uri(uri)
             .method(Method::POST)
-            .body(Body::empty())?;
+            .body(Full::default())?;
 
         self.client.request(request).await?;
 
@@ -137,11 +138,10 @@ impl DockerClient for Client {
         let request = Request::builder()
             .uri(uri)
             .method(Method::GET)
-            .body(Body::empty())?;
+            .body(Full::default())?;
 
-        let mut response = self.client.request(request).await?;
-        let bytes = hyper::body::to_bytes(response.body_mut()).await?;
-        let payload: InspectContainerResponse = serde_json::from_slice(&bytes)?;
+        let response = self.client.request(request).await?;
+        let payload: InspectContainerResponse = deserialize_body(response).await?;
 
         let NetworkSettings { ip_address } = payload.network_settings;
 
@@ -157,7 +157,7 @@ impl DockerClient for Client {
         let request = Request::builder()
             .uri(uri)
             .method(Method::DELETE)
-            .body(Body::empty())?;
+            .body(Full::default())?;
 
         self.client.request(request).await?;
 
@@ -170,7 +170,7 @@ impl Client {
         tracing::debug!(%base, "Created a new Docker client");
 
         Self {
-            client: hyper::Client::unix(),
+            client: HyperClient::unix(),
             base: String::from(base),
         }
     }
@@ -190,4 +190,28 @@ fn format_environment_variables(environment: &Option<Environment>) -> Vec<String
         .iter()
         .map(|(k, v)| format!("{k}={v}"))
         .collect()
+}
+
+async fn read_body(mut response: Response<Incoming>) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+
+    while let Some(frame_result) = response.frame().await {
+        let frame = frame_result?;
+
+        if let Some(segment) = frame.data_ref() {
+            bytes.extend_from_slice(segment);
+        }
+    }
+
+    Ok(bytes)
+}
+
+async fn deserialize_body<T>(response: Response<Incoming>) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let bytes = read_body(response).await?;
+    let json = serde_json::from_slice(&bytes)?;
+
+    Ok(json)
 }

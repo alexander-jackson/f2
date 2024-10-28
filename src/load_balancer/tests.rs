@@ -1,13 +1,19 @@
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use color_eyre::eyre::{Report, Result};
-use hyper::client::HttpConnector;
+use color_eyre::eyre::Result;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
 use hyper::header::HOST;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Request, Response, Server, StatusCode};
+use hyper::service::service_fn;
+use hyper::{Request, Response, StatusCode};
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
@@ -41,14 +47,14 @@ fn add_container(service_registry: &mut ServiceRegistry, name: &str) {
     service_registry.add_container(name, details);
 }
 
-async fn handler(response: &'static str) -> Result<Response<Body>> {
-    Ok(Response::new(Body::from(response)))
+async fn handler(response: &'static str) -> Result<Response<Full<Bytes>>> {
+    Ok(Response::new(Full::from(response)))
 }
 
-async fn handle_health_checks(req: Request<Body>) -> Result<Response<Body>> {
+async fn handle_health_checks(req: Request<Incoming>) -> Result<Response<Full<Bytes>>> {
     let response = match req.uri().path() {
-        "/health" => Response::new(Body::empty()),
-        _ => Response::builder().status(404).body(Body::empty())?,
+        "/health" => Response::new(Full::default()),
+        _ => Response::builder().status(404).body(Full::default())?,
     };
 
     Ok(response)
@@ -56,21 +62,20 @@ async fn handle_health_checks(req: Request<Body>) -> Result<Response<Body>> {
 
 async fn spawn_fixed_response_server(response: &'static str) -> Result<SocketAddr> {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-    let listener = TcpListener::bind(&addr)?;
-
-    let service =
-        make_service_fn(
-            move |_| async move { Ok::<_, Report>(service_fn(move |_| handler(response))) },
-        );
+    let listener = TcpListener::bind(&addr).await?;
 
     let resolved_addr = listener.local_addr()?;
 
     tokio::spawn(async move {
-        let server = Server::from_tcp(listener)
-            .expect("Failed to create server")
-            .serve(service);
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
 
-        server.await.expect("Failed to run server");
+            Builder::new(TokioExecutor::new())
+                .serve_connection(io, service_fn(move |_| handler(response)))
+                .await
+                .unwrap();
+        }
     });
 
     Ok(resolved_addr)
@@ -78,7 +83,7 @@ async fn spawn_fixed_response_server(response: &'static str) -> Result<SocketAdd
 
 async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<SocketAddr> {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-    let listener = TcpListener::bind(&addr)?;
+    let listener = TcpListener::bind(&addr).await?;
 
     let resolved_addr = listener.local_addr()?;
     let service_registry = Arc::new(RwLock::new(service_registry));
@@ -136,16 +141,14 @@ async fn can_proxy_requests_based_on_host_header() -> Result<()> {
 
     let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
-    let client = Client::new();
+    let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
         .uri(format!("http://{}", load_balancer_addr))
         .header(HOST, "blackboards.pl")
-        .body(Body::empty())?;
+        .body(Full::default())?;
 
-    let mut response = client.request(request).await?;
-    let bytes = hyper::body::to_bytes(response.body_mut()).await?;
-    let body = std::str::from_utf8(&bytes)?;
+    let body = get_response_body(&client, request).await?;
 
     assert_eq!(body, "Hello from Blackboards");
 
@@ -157,20 +160,20 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     let host = "opentracker.app";
 
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-    let listener = TcpListener::bind(&addr)?;
-
-    let service = make_service_fn(move |_| async move {
-        Ok::<_, Report>(service_fn(move |req| handle_health_checks(req)))
-    });
+    let listener = TcpListener::bind(&addr).await?;
 
     let resolved_addr = listener.local_addr()?;
 
     tokio::spawn(async move {
-        let server = Server::from_tcp(listener)
-            .expect("Failed to create server")
-            .serve(service);
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
 
-        server.await.expect("Failed to run server");
+            Builder::new(TokioExecutor::new())
+                .serve_connection(io, service_fn(move |req| handle_health_checks(req)))
+                .await
+                .unwrap();
+        }
     });
 
     let mut service_registry = ServiceRegistry::new();
@@ -180,12 +183,12 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
 
     let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
-    let client = Client::new();
+    let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
         .uri(format!("http://{}/health", load_balancer_addr))
         .header(HOST, host)
-        .body(Body::empty())?;
+        .body(Full::<Bytes>::default())?;
 
     let response = client.request(request).await?;
 
@@ -194,7 +197,7 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     let request = Request::builder()
         .uri(format!("http://{}/something-else", load_balancer_addr))
         .header(HOST, host)
-        .body(Body::empty())?;
+        .body(Full::default())?;
 
     let response = client.request(request).await?;
 
@@ -204,15 +207,14 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
 }
 
 async fn get_response_body(
-    client: &Client<HttpConnector>,
-    request: Request<Body>,
+    client: &Client<HttpConnector, Full<Bytes>>,
+    request: Request<Full<Bytes>>,
 ) -> Result<String> {
-    dbg!(&request);
-
     let mut response = client.request(request).await?;
     let body = response.body_mut();
-    let bytes = hyper::body::to_bytes(body).await?;
-    let text = String::from_utf8(bytes.to_vec())?;
+
+    let bytes = body.collect().await?;
+    let text = String::from_utf8(bytes.to_bytes().to_vec())?;
 
     Ok(text)
 }
@@ -237,19 +239,19 @@ async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
 
     let load_balancer_addr = spawn_load_balancer(service_registry).await?;
 
-    let client = Client::new();
+    let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
         .uri(format!("http://{load_balancer_addr}/health"))
         .header(HOST, "opentracker.app")
-        .body(Body::empty())?;
+        .body(Full::default())?;
 
     assert_eq!(get_response_body(&client, request).await?, frontend_reply);
 
     let request = Request::builder()
         .uri(format!("http://{load_balancer_addr}/api/health"))
         .header(HOST, "opentracker.app")
-        .body(Body::empty())?;
+        .body(Full::default())?;
 
     assert_eq!(get_response_body(&client, request).await?, backend_reply);
 
