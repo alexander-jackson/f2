@@ -9,8 +9,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol};
 use rand::prelude::{SeedableRng, SmallRng};
-use rustls::server::WebPkiClientVerifier;
-use rustls::RootCertStore;
+use rustls::server::NoClientAuth;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
@@ -83,8 +82,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         };
 
         if let Some(tls) = tls {
-            let store = Arc::new(RootCertStore::empty());
-            let verifier = WebPkiClientVerifier::builder(store).build()?;
+            let verifier = Arc::new(NoClientAuth);
             let resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
 
             let protocols = tls
