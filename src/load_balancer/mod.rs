@@ -93,7 +93,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
 
             let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);
 
-            server.run(listener).await?;
+            server.run(listener).await;
         } else {
             loop {
                 let (stream, _) = listener.accept().await?;
