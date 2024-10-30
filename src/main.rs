@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
     let addr = config.alb.addr;
     let port = config.alb.port;
     let tls = config.alb.tls.clone();
+    let mtls = config.alb.mtls.clone();
 
     let mut service_registry = ServiceRegistry::new();
     let private_key = config.get_private_key().await?;
@@ -83,7 +84,7 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
     let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
 
-    load_balancer.start(listener, tls).await?;
+    load_balancer.start(listener, tls, mtls).await?;
 
     Ok(())
 }

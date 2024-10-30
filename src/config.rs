@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::Ipv4Addr;
 use std::num::NonZeroU8;
@@ -104,6 +104,7 @@ pub struct AlbConfig {
     pub port: u16,
     pub reconciliation: String,
     pub tls: Option<TlsConfig>,
+    pub mtls: Option<MtlsConfig>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -129,6 +130,14 @@ impl TlsSecrets {
 
         Ok((cert, key))
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct MtlsConfig {
+    /// The certificate to use as the trust anchor when validating incoming requests.
+    pub anchor: ExternalBytes,
+    /// The domains to apply mTLS to.
+    pub domains: HashSet<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -232,6 +241,7 @@ mod tests {
                 port: 5000,
                 reconciliation: String::new(),
                 tls: None,
+                mtls: None,
             },
             secrets: None,
             services,
