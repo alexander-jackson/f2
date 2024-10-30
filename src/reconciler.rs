@@ -254,6 +254,7 @@ pub mod tests {
                 port: 5000,
                 reconciliation: String::new(),
                 tls: None,
+                mtls: None,
             },
             secrets: None,
             services: HashMap::new(),

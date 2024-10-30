@@ -9,11 +9,14 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol};
 use rand::prelude::{SeedableRng, SmallRng};
-use rustls::server::NoClientAuth;
+use rustls::pki_types::CertificateDer;
+use rustls::server::danger::ClientCertVerifier;
+use rustls::server::{NoClientAuth, WebPkiClientVerifier};
+use rustls::RootCertStore;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::config::TlsConfig;
+use crate::config::{MtlsConfig, TlsConfig};
 use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
@@ -52,7 +55,12 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         }
     }
 
-    pub async fn start(&mut self, listener: TcpListener, tls: Option<TlsConfig>) -> Result<()> {
+    pub async fn start(
+        &mut self,
+        listener: TcpListener,
+        tls: Option<TlsConfig>,
+        mtls: Option<MtlsConfig>,
+    ) -> Result<()> {
         let service_factory = |_| {
             let service_registry = Arc::clone(&self.service_registry);
             let rng = Arc::clone(&self.rng);
@@ -82,13 +90,33 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         };
 
         if let Some(tls) = tls {
-            let verifier = Arc::new(NoClientAuth);
+            let verifier: Arc<dyn ClientCertVerifier> = match &mtls {
+                Some(config) => {
+                    let bytes = config.anchor.resolve().await?;
+                    let certificate = CertificateDer::from_slice(&bytes);
+
+                    let mut store = RootCertStore::empty();
+                    store.add(certificate)?;
+
+                    WebPkiClientVerifier::builder(Arc::new(store)).build()?
+                }
+                None => Arc::new(NoClientAuth),
+            };
+
             let resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
 
             let protocols = tls
                 .domains
                 .keys()
-                .map(|domain| (domain.to_owned(), Protocol::Public))
+                .map(|domain| {
+                    let protocol = mtls
+                        .as_ref()
+                        .map(|config| &config.domains)
+                        .and_then(|domains| domains.contains(domain).then_some(Protocol::Mutual))
+                        .unwrap_or(Protocol::Public);
+
+                    (domain.to_owned(), protocol)
+                })
                 .collect();
 
             let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);

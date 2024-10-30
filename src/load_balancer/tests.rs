@@ -101,6 +101,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                         port: 5000,
                         reconciliation: String::from("/reconciliation"),
                         tls: None,
+                        mtls: None,
                     },
                     secrets: None,
                     services: HashMap::new(),
@@ -111,7 +112,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
         );
 
         load_balancer
-            .start(listener, None)
+            .start(listener, None, None)
             .await
             .expect("Failed to run load balancer");
     });
