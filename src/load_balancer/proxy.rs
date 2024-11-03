@@ -24,29 +24,27 @@ pub async fn handle_request<C: DockerClient>(
     reconciliation_path: Arc<str>,
     reconciler: Arc<Reconciler<C>>,
     mut req: Request<Incoming>,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+) -> Result<Response<BoxBody<Bytes, hyper::Error>>> {
     let uri = req.uri();
 
     if let Some(path_and_query) = uri.path_and_query() {
         if path_and_query.path() == &*reconciliation_path {
-            reconciler.reconcile().await.unwrap();
-            return Ok(Response::builder().status(200).body(empty()).unwrap());
+            reconciler.reconcile().await?;
+            return Ok(Response::builder().status(200).body(empty())?);
         }
     }
 
     let host = req
         .headers()
         .get(hyper::header::HOST)
-        .context("Failed to get `host` header")
-        .unwrap()
-        .to_str()
-        .unwrap();
+        .context("Failed to get `host` header")?
+        .to_str()?;
 
     // Filter based on the host, then do path matching for longest length
     let read_lock = service_registry.read().await;
 
     let Some((downstreams, port)) = read_lock.find_downstreams(host, uri.path()) else {
-        let response = Response::builder().status(404).body(empty()).unwrap();
+        let response = Response::builder().status(404).body(empty())?;
         return Ok(response);
     };
 
@@ -57,8 +55,7 @@ pub async fn handle_request<C: DockerClient>(
 
         downstreams
             .get_index(normalised)
-            .context("Failed to select downstream host")
-            .unwrap()
+            .context("Failed to select downstream host")?
             .addr
     };
 
@@ -69,9 +66,9 @@ pub async fn handle_request<C: DockerClient>(
     tracing::info!(%downstream, %path_and_query, "Proxing request to a downstream server");
 
     let addr = SocketAddrV4::new(downstream, port);
-    *req.uri_mut() = format!("http://{addr}{path_and_query}").parse().unwrap();
+    *req.uri_mut() = format!("http://{addr}{path_and_query}").parse()?;
 
-    Ok(client.request(req).await.unwrap().map(BoxBody::new))
+    Ok(client.request(req).await?.map(BoxBody::new))
 }
 
 fn empty() -> BoxBody<Bytes, hyper::Error> {
