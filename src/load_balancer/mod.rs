@@ -127,7 +127,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
                 let (stream, _) = listener.accept().await?;
                 let io = TokioIo::new(stream);
 
-                let service = service_factory(ConnectionContext { unit: None });
+                let service = service_factory(ConnectionContext { common_name: None });
 
                 tokio::spawn(async move {
                     if let Err(e) = Builder::new(TokioExecutor::new())
