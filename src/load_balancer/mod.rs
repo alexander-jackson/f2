@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
@@ -9,7 +10,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol};
 use rand::prelude::{SeedableRng, SmallRng};
-use rustls::pki_types::CertificateDer;
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{NoClientAuth, WebPkiClientVerifier};
 use rustls::RootCertStore;
@@ -93,10 +93,13 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
             let verifier: Arc<dyn ClientCertVerifier> = match &mtls {
                 Some(config) => {
                     let bytes = config.anchor.resolve().await?;
-                    let certificate = CertificateDer::from_slice(&bytes);
+                    let mut cursor = Cursor::new(bytes);
 
                     let mut store = RootCertStore::empty();
-                    store.add(certificate)?;
+                    let certs = rustls_pemfile::certs(&mut cursor).filter_map(Result::ok);
+                    let (added, ignored) = store.add_parsable_certificates(certs);
+
+                    tracing::info!(%added, %ignored, "set up the trust store");
 
                     WebPkiClientVerifier::builder(Arc::new(store)).build()?
                 }
