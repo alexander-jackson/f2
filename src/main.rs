@@ -8,6 +8,10 @@ use rsa::RsaPrivateKey;
 use service_registry::ServiceRegistry;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use crate::args::Args;
 use crate::common::Container;
@@ -29,13 +33,14 @@ mod service_registry;
 fn setup() -> Result<()> {
     color_eyre::install()?;
 
-    // Set `RUST_LOG` if not set
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    let env_filter_layer = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env()?;
 
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(env_filter_layer)
         .init();
 
     Ok(())
