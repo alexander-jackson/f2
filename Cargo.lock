@@ -1473,7 +1473,7 @@ dependencies = [
 [[package]]
 name = "mutual-tls"
 version = "0.1.0"
-source = "git+https://github.com/alexander-jackson/mutual-tls.git?rev=efeb451#efeb4510aeda45aecd9a532f5237ac2e632d1a25"
+source = "git+https://github.com/alexander-jackson/mutual-tls.git?rev=012b3d5#012b3d595a73d6462767200acd4c510900ad60cb"
 dependencies = [
  "argh",
  "color-eyre",
