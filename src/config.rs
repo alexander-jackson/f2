@@ -33,7 +33,6 @@ pub struct Config {
     pub alb: AlbConfig,
     pub secrets: Option<SecretConfig>,
     pub services: HashMap<String, Service>,
-    pub auxillary_services: Option<Vec<AuxillaryService>>,
 }
 
 impl Config {
@@ -215,15 +214,6 @@ impl Hash for Service {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-pub struct AuxillaryService {
-    pub image: String,
-    pub tag: String,
-    pub port: u16,
-    #[serde(default)]
-    pub environment: HashMap<String, String>,
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -245,7 +235,6 @@ mod tests {
             },
             secrets: None,
             services,
-            auxillary_services: None,
         }
     }
 

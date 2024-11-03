@@ -105,7 +105,6 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
                     },
                     secrets: None,
                     services: HashMap::new(),
-                    auxillary_services: None,
                 },
                 FakeDockerClient::default(),
             ),

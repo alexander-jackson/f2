@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use rsa::RsaPrivateKey;
 
-use crate::config::{AuxillaryService, Service};
+use crate::config::Service;
 use crate::crypto::decrypt;
 
 #[derive(Clone)]
@@ -78,19 +78,6 @@ impl From<&Service> for Container {
                 variables: service.environment.clone(),
             },
             volumes: service.volumes.clone(),
-        }
-    }
-}
-
-impl From<&AuxillaryService> for Container {
-    fn from(service: &AuxillaryService) -> Self {
-        Self {
-            image: service.image.clone(),
-            target_port: service.port,
-            environment: EncryptedEnvironment {
-                variables: service.environment.clone(),
-            },
-            volumes: Default::default(),
         }
     }
 }

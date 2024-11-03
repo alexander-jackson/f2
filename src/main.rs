@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 use crate::args::Args;
 use crate::common::Container;
-use crate::config::{AuxillaryService, Config, Service};
+use crate::config::{Config, Service};
 use crate::docker::api::create_and_start_container;
 use crate::load_balancer::LoadBalancer;
 use crate::reconciler::Reconciler;
@@ -66,11 +66,6 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // Start the auxillary services
-    if let Some(services) = &config.auxillary_services {
-        start_auxillary_services(&docker_client, services, private_key.as_ref()).await?;
-    }
-
     let service_registry = Arc::new(RwLock::new(service_registry));
     let reconciliation_path = config.alb.reconciliation.clone();
 
@@ -107,22 +102,6 @@ async fn start_services<C: DockerClient>(
             let details = create_and_start_container(client, &container, tag, private_key).await?;
             service_registry.add_container(name, details);
         }
-    }
-
-    Ok(())
-}
-
-async fn start_auxillary_services<C: DockerClient>(
-    client: &C,
-    services: &[AuxillaryService],
-    private_key: Option<&RsaPrivateKey>,
-) -> Result<()> {
-    for service in services {
-        let tag = &service.tag;
-        let container = Container::from(&service.clone());
-        let details = create_and_start_container(client, &container, tag, private_key).await?;
-
-        tracing::info!("Started {} on port {}", service.image, details.addr);
     }
 
     Ok(())

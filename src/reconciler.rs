@@ -258,7 +258,6 @@ pub mod tests {
             },
             secrets: None,
             services: HashMap::new(),
-            auxillary_services: None,
         };
 
         Reconciler::new(
