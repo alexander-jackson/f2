@@ -21,7 +21,7 @@ hyper-util = { version = "0.1.10", features = ["client", "client-legacy", "http1
 hyperlocal = "0.9.1"
 indexmap = "2.6.0"
 itertools = "0.13.0"
-mutual-tls = { git = "https://github.com/alexander-jackson/mutual-tls.git", rev = "d9691d8", version = "0.1.0" }
+mutual-tls = { git = "https://github.com/alexander-jackson/mutual-tls.git", rev = "3f78aaa", version = "0.1.0" }
 pico-args = "0.5.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rsa = "0.9.6"

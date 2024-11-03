@@ -8,7 +8,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
-use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol};
+use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol, StaticProtocolResolver};
 use rand::prelude::{SeedableRng, SmallRng};
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{NoClientAuth, WebPkiClientVerifier};
@@ -121,6 +121,8 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
                     (domain.to_owned(), protocol)
                 })
                 .collect();
+
+            let protocols = StaticProtocolResolver::new(protocols);
 
             let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);
 
