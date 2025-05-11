@@ -89,7 +89,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
     let service_registry = Arc::new(RwLock::new(service_registry));
 
     tokio::spawn(async move {
-        let mut load_balancer = LoadBalancer::new(
+        let load_balancer = LoadBalancer::new(
             Arc::clone(&service_registry),
             "/reconciliation",
             Reconciler::new(
