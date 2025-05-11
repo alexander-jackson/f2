@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use color_eyre::eyre::{eyre, Result};
 use indexmap::IndexSet;
 use tokio::sync::RwLock;
@@ -11,11 +12,11 @@ use crate::docker::api::{create_and_start_container, StartedContainerDetails};
 use crate::docker::client::DockerClient;
 use crate::service_registry::ServiceRegistry;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Reconciler<C: DockerClient> {
     registry: Arc<RwLock<ServiceRegistry>>,
     config_location: Arc<ConfigurationLocation>,
-    config: Arc<RwLock<Config>>,
+    config: Arc<ArcSwap<Config>>,
     docker_client: C,
 }
 
@@ -23,31 +24,23 @@ impl<C: DockerClient> Reconciler<C> {
     pub fn new(
         registry: Arc<RwLock<ServiceRegistry>>,
         config_location: ConfigurationLocation,
-        config: Config,
+        config: Arc<ArcSwap<Config>>,
         docker_client: C,
     ) -> Self {
         Self {
             registry,
             config_location: Arc::new(config_location),
-            config: Arc::new(RwLock::new(config)),
+            config,
             docker_client,
         }
     }
 
     pub async fn reconcile(&self) -> Result<()> {
         let new_config = Config::from_location(&self.config_location).await?;
-        let read_lock = self.config.read().await;
-        let old_config = &read_lock;
+        let old_config = self.config.load();
 
         if let Some(diff) = old_config.diff(&new_config) {
-            // Drop the read lock, acquire a write one
-            drop(read_lock);
-
-            let mut write_lock = self.config.write().await;
-            *write_lock = new_config;
-
-            // Drop the write lock and begin sending events
-            drop(write_lock);
+            self.config.store(Arc::new(new_config.clone()));
 
             for event in diff {
                 self.handle_diff(event).await?;
@@ -75,7 +68,7 @@ impl<C: DockerClient> Reconciler<C> {
         // Keep the locks short, create everything then add to the LB
         let mut started_containers = Vec::new();
 
-        let private_key = self.config.read().await.get_private_key().await?;
+        let private_key = self.config.load().get_private_key().await?;
         let container = Container::from(&new_definition);
 
         for _ in 0..replicas.get() {
@@ -178,6 +171,7 @@ pub mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use arc_swap::ArcSwap;
     use color_eyre::eyre::Result;
     use tokio::sync::RwLock;
 
@@ -260,10 +254,12 @@ pub mod tests {
             services: HashMap::new(),
         };
 
+        let config = ArcSwap::from_pointee(config);
+
         Reconciler::new(
             Arc::new(RwLock::new(registry)),
             ConfigurationLocation::Filesystem(PathBuf::new()),
-            config,
+            Arc::new(config),
             docker_client,
         )
     }

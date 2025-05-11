@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddrV4;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use color_eyre::eyre::Result;
 use docker::client::{Client, DockerClient};
 use rsa::RsaPrivateKey;
@@ -51,38 +52,48 @@ async fn main() -> Result<()> {
     setup()?;
 
     let args = Args::parse()?;
-    let config = Config::from_location(&args.config_location).await?;
+    let config = Arc::new(ArcSwap::from_pointee(
+        Config::from_location(&args.config_location).await?,
+    ));
 
-    let addr = config.alb.addr;
-    let port = config.alb.port;
-    let tls = config.alb.tls.clone();
-    let mtls = config.alb.mtls.clone();
+    let alb_config = &config.load().alb;
+
+    let addr = alb_config.addr;
+    let port = alb_config.port;
+    let tls = alb_config.tls.clone();
+    let mtls = alb_config.mtls.clone();
 
     let mut service_registry = ServiceRegistry::new();
-    let private_key = config.get_private_key().await?;
+    let private_key = config.load().get_private_key().await?;
 
     let docker_client = Client::new("/var/run/docker.sock");
+    let services = &config.load().services;
 
     start_services(
         &docker_client,
-        &config.services,
+        services,
         &mut service_registry,
         private_key.as_ref(),
     )
     .await?;
 
     let service_registry = Arc::new(RwLock::new(service_registry));
-    let reconciliation_path = config.alb.reconciliation.clone();
+    let reconciliation_path = alb_config.reconciliation.clone();
 
     let reconciler = Reconciler::new(
         Arc::clone(&service_registry),
         args.config_location.clone(),
-        config,
+        Arc::clone(&config),
         docker_client,
     );
 
     let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
-    let load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
+    let load_balancer = LoadBalancer::new(
+        service_registry,
+        &reconciliation_path,
+        reconciler,
+        Arc::clone(&config),
+    );
 
     load_balancer.start(listener, tls, mtls).await?;
 
