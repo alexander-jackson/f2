@@ -56,12 +56,12 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
     }
 
     pub async fn start(
-        &mut self,
+        self,
         listener: TcpListener,
         tls: Option<TlsConfig>,
         mtls: Option<MtlsConfig>,
     ) -> Result<()> {
-        let service_factory = |_| {
+        let service_factory = move |_| {
             let service_registry = Arc::clone(&self.service_registry);
             let rng = Arc::clone(&self.rng);
             let client = self.client.clone();

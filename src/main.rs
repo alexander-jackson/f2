@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
     );
 
     let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
-    let mut load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
+    let load_balancer = LoadBalancer::new(service_registry, &reconciliation_path, reconciler);
 
     load_balancer.start(listener, tls, mtls).await?;
 
