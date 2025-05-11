@@ -3,6 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use color_eyre::eyre::Result;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
@@ -88,6 +89,20 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
     let resolved_addr = listener.local_addr()?;
     let service_registry = Arc::new(RwLock::new(service_registry));
 
+    let config = Config {
+        alb: AlbConfig {
+            addr: Ipv4Addr::LOCALHOST,
+            port: 5000,
+            reconciliation: String::from("/reconciliation"),
+            tls: None,
+            mtls: None,
+        },
+        secrets: None,
+        services: HashMap::new(),
+    };
+
+    let config = Arc::new(ArcSwap::from_pointee(config));
+
     tokio::spawn(async move {
         let load_balancer = LoadBalancer::new(
             Arc::clone(&service_registry),
@@ -95,19 +110,10 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
             Reconciler::new(
                 Arc::clone(&service_registry),
                 ConfigurationLocation::Filesystem(PathBuf::new()),
-                Config {
-                    alb: AlbConfig {
-                        addr: Ipv4Addr::LOCALHOST,
-                        port: 5000,
-                        reconciliation: String::from("/reconciliation"),
-                        tls: None,
-                        mtls: None,
-                    },
-                    secrets: None,
-                    services: HashMap::new(),
-                },
+                Arc::clone(&config),
                 FakeDockerClient::default(),
             ),
+            Arc::clone(&config),
         );
 
         load_balancer

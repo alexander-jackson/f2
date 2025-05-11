@@ -5,12 +5,13 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use color_eyre::eyre::{eyre, Result};
 use itertools::Itertools;
+use mutual_tls::{Protocol, ProtocolResolver};
 use rustls::crypto::ring::sign::any_supported_type;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 
-use crate::config::TlsSecrets;
+use crate::config::{Config, TlsSecrets};
 
 type Configuration = HashMap<String, TlsSecrets>;
 type Domains = HashMap<String, Arc<CertifiedKey>>;
@@ -73,5 +74,90 @@ impl ResolvesServerCert for CertificateResolver {
         let domains = self.domains.load();
 
         domains.get(server_name).cloned()
+    }
+}
+
+#[derive(Debug)]
+pub struct DynamicProtocolResolver {
+    config: Arc<ArcSwap<Config>>,
+}
+
+impl DynamicProtocolResolver {
+    pub fn new(config: Arc<ArcSwap<Config>>) -> Arc<Self> {
+        Arc::new(Self { config })
+    }
+}
+
+impl ProtocolResolver for DynamicProtocolResolver {
+    fn resolve(&self, client_hello: &str) -> Option<Protocol> {
+        let config = self.config.load();
+
+        let Some(mtls) = config.alb.mtls.as_ref() else {
+            return Some(Protocol::Public);
+        };
+
+        if mtls.domains.contains(client_hello) {
+            Some(Protocol::Mutual)
+        } else {
+            Some(Protocol::Public)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+    use std::net::Ipv4Addr;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use arc_swap::ArcSwap;
+    use mutual_tls::Protocol;
+
+    use crate::config::{AlbConfig, Config, ExternalBytes, MtlsConfig};
+    use crate::load_balancer::tls::{DynamicProtocolResolver, ProtocolResolver};
+
+    #[test]
+    fn configuration_updates_propagate_immediately() {
+        let domain1 = "example.com";
+        let domain2 = "example.org";
+
+        let alb = AlbConfig {
+            addr: Ipv4Addr::LOCALHOST,
+            port: 5000,
+            reconciliation: String::new(),
+            tls: None,
+            mtls: Some(MtlsConfig {
+                anchor: ExternalBytes::Filesystem {
+                    path: PathBuf::new(),
+                },
+                domains: HashSet::from([domain1.to_string()]),
+            }),
+        };
+
+        let mut original_config = Config {
+            alb,
+            secrets: None,
+            services: HashMap::new(),
+        };
+
+        let config = Arc::new(ArcSwap::from_pointee(original_config.clone()));
+        let resolver = DynamicProtocolResolver::new(Arc::clone(&config));
+
+        assert!(matches!(resolver.resolve(&domain1), Some(Protocol::Mutual)));
+        assert!(matches!(resolver.resolve(&domain2), Some(Protocol::Public)));
+
+        original_config
+            .alb
+            .mtls
+            .as_mut()
+            .unwrap()
+            .domains
+            .insert(domain2.to_string());
+
+        config.store(Arc::new(original_config));
+
+        assert!(matches!(resolver.resolve(&domain1), Some(Protocol::Mutual)));
+        assert!(matches!(resolver.resolve(&domain2), Some(Protocol::Mutual)));
     }
 }

@@ -1,6 +1,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use color_eyre::eyre::Result;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
@@ -8,15 +9,16 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
-use mutual_tls::{ConnectionContext, MutualTlsServer, Protocol, StaticProtocolResolver};
+use mutual_tls::{ConnectionContext, MutualTlsServer};
 use rand::prelude::{SeedableRng, SmallRng};
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{NoClientAuth, WebPkiClientVerifier};
 use rustls::RootCertStore;
+use tls::DynamicProtocolResolver;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::config::{MtlsConfig, TlsConfig};
+use crate::config::{Config, MtlsConfig, TlsConfig};
 use crate::docker::client::DockerClient;
 use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
@@ -33,6 +35,7 @@ pub struct LoadBalancer<C: DockerClient> {
     rng: Arc<Mutex<SmallRng>>,
     reconciler_path: Arc<str>,
     reconciler: Arc<Reconciler<C>>,
+    config: Arc<ArcSwap<Config>>,
 }
 
 impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
@@ -40,6 +43,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         service_registry: Arc<RwLock<ServiceRegistry>>,
         reconciler_path: &str,
         reconciler: Reconciler<C>,
+        config: Arc<ArcSwap<Config>>,
     ) -> Self {
         let client = Client::builder(TokioExecutor::new()).build_http();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
@@ -52,6 +56,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
             rng,
             reconciler_path,
             reconciler,
+            config,
         }
     }
 
@@ -107,22 +112,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
             };
 
             let resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
-
-            let protocols = tls
-                .domains
-                .keys()
-                .map(|domain| {
-                    let protocol = mtls
-                        .as_ref()
-                        .map(|config| &config.domains)
-                        .and_then(|domains| domains.contains(domain).then_some(Protocol::Mutual))
-                        .unwrap_or(Protocol::Public);
-
-                    (domain.to_owned(), protocol)
-                })
-                .collect();
-
-            let protocols = StaticProtocolResolver::new(protocols);
+            let protocols = DynamicProtocolResolver::new(Arc::clone(&self.config));
 
             let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);
 
