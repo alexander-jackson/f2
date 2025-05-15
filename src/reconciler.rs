@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 
 use crate::args::ConfigurationLocation;
 use crate::common::Container;
-use crate::config::{Config, Diff, ReplicaCount, Service};
+use crate::config::{Config, Diff, ReplicaCount, Service, ShutdownMode};
 use crate::docker::api::{create_and_start_container, StartedContainerDetails};
 use crate::docker::client::DockerClient;
 use crate::service_registry::ServiceRegistry;
@@ -93,27 +93,39 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
-    async fn handle_alteration(&self, name: String, new_definition: Service) -> Result<()> {
+    async fn handle_alteration(
+        &self,
+        name: &str,
+        old_definition: Service,
+        new_definition: Service,
+    ) -> Result<()> {
         let running_containers = self
-            .get_running_containers(&name)
+            .get_running_containers(name)
             .await
             .ok_or_else(|| eyre!("Failed to get running containers for {name}"))?;
 
         let replicas = new_definition.replicas;
 
-        self.start_multiple_containers(&name, new_definition, replicas)
+        self.start_multiple_containers(name, new_definition, replicas)
             .await?;
 
         let mut write_lock = self.registry.write().await;
 
         for details in &running_containers {
-            write_lock.remove_container_by_id(&name, &details.id);
+            write_lock.remove_container_by_id(name, &details.id);
         }
 
         drop(write_lock);
 
         for details in &running_containers {
-            self.docker_client.remove_container(&details.id).await?;
+            match old_definition.shutdown_mode {
+                ShutdownMode::Graceful => {
+                    self.docker_client.stop_container(&details.id).await?;
+                }
+                ShutdownMode::Forceful => {
+                    self.docker_client.remove_container(&details.id).await?;
+                }
+            }
         }
 
         Ok(())
@@ -154,8 +166,12 @@ impl<C: DockerClient> Reconciler<C> {
         match diff {
             Diff::Alteration {
                 name,
+                old_definition,
                 new_definition,
-            } => self.handle_alteration(name, new_definition).await?,
+            } => {
+                self.handle_alteration(&name, old_definition, new_definition)
+                    .await?
+            }
             Diff::Addition { name, definition } => self.handle_addition(name, definition).await?,
             Diff::Removal { name } => self.handle_removal(name).await?,
         }
@@ -228,6 +244,13 @@ pub mod tests {
 
         async fn get_container_ip(&self, _id: &ContainerId) -> Result<Ipv4Addr> {
             Ok(Ipv4Addr::LOCALHOST)
+        }
+
+        async fn stop_container(&self, id: &ContainerId) -> Result<()> {
+            let mut lock = self.state.write().await;
+            lock.containers.retain(|c| c.0 != *id);
+
+            Ok(())
         }
 
         async fn remove_container(&self, id: &ContainerId) -> Result<()> {
@@ -363,7 +386,7 @@ pub mod tests {
             .create_container(&image_and_tag, &None, &HashMap::new())
             .await?;
 
-        registry.define(service, service_definition);
+        registry.define(service, service_definition.clone());
         registry.add_container(
             service,
             StartedContainerDetails {
@@ -376,6 +399,7 @@ pub mod tests {
 
         let diff = Diff::Alteration {
             name: service.to_owned(),
+            old_definition: service_definition,
             new_definition: altered_definition,
         };
 
