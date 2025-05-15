@@ -34,6 +34,8 @@ pub trait DockerClient {
 
     async fn get_container_ip(&self, id: &ContainerId) -> Result<Ipv4Addr>;
 
+    async fn stop_container(&self, id: &ContainerId) -> Result<()>;
+
     async fn remove_container(&self, id: &ContainerId) -> Result<()>;
 }
 
@@ -146,6 +148,22 @@ impl DockerClient for Client {
         let NetworkSettings { ip_address } = payload.network_settings;
 
         Ok(ip_address)
+    }
+
+    async fn stop_container(&self, id: &ContainerId) -> Result<()> {
+        let path = format!("/containers/{id}/stop?signal=SIGTERM&t=15");
+        let uri = self.build_uri(&path);
+
+        tracing::info!(%id, "Stopping a container");
+
+        let request = Request::builder()
+            .uri(uri)
+            .method(Method::POST)
+            .body(Full::default())?;
+
+        self.client.request(request).await?;
+
+        Ok(())
     }
 
     async fn remove_container(&self, id: &ContainerId) -> Result<()> {

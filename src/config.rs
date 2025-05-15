@@ -17,6 +17,7 @@ use crate::crypto::parse_private_key;
 pub enum Diff {
     Alteration {
         name: String,
+        old_definition: Service,
         new_definition: Service,
     },
     Addition {
@@ -71,6 +72,7 @@ impl Config {
                 if service != definition {
                     diff.push(Diff::Alteration {
                         name: name.into(),
+                        old_definition: service.clone(),
                         new_definition: definition.clone(),
                     });
                 }
@@ -193,6 +195,18 @@ impl Deref for ReplicaCount {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+pub enum ShutdownMode {
+    Graceful,
+    Forceful,
+}
+
+impl Default for ShutdownMode {
+    fn default() -> Self {
+        Self::Forceful
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
 pub struct Service {
     pub image: String,
@@ -205,6 +219,8 @@ pub struct Service {
     pub environment: HashMap<String, String>,
     #[serde(default)]
     pub volumes: HashMap<String, String>,
+    #[serde(default)]
+    pub shutdown_mode: ShutdownMode,
 }
 
 impl Hash for Service {
@@ -251,6 +267,7 @@ mod tests {
             diff,
             Some(vec![Diff::Alteration {
                 name: String::from("backend"),
+                old_definition: left.services.get("backend").unwrap().clone(),
                 new_definition: right.services.get("backend").unwrap().clone()
             }])
         );
@@ -282,6 +299,7 @@ mod tests {
             diff,
             Some(vec![Diff::Alteration {
                 name: String::from("backend"),
+                old_definition: left.services.get("backend").unwrap().clone(),
                 new_definition: right.services.get("backend").unwrap().clone()
             }])
         );
