@@ -15,6 +15,8 @@ pub fn parse_private_key(bytes: &[u8]) -> Result<RsaPrivateKey> {
 }
 
 pub fn decrypt(secret: &str, key: &RsaPrivateKey) -> Result<String> {
+    tracing::debug!(%secret, "decrypting some content");
+
     let decoded = base64_decode(secret)?;
     let decrypted = key.decrypt(Pkcs1v15Encrypt, &decoded)?;
     let decoded = String::from_utf8(decrypted)?;

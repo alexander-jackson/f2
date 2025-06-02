@@ -151,7 +151,9 @@ pub enum ExternalBytes {
 impl ExternalBytes {
     pub async fn resolve(&self) -> Result<Vec<u8>> {
         let bytes = match self {
-            Self::Filesystem { path } => tokio::fs::read(path).await?,
+            Self::Filesystem { path } => tokio::fs::read(path)
+                .await
+                .wrap_err_with(|| eyre!("failed to read file at {}", path.display()))?,
             Self::S3 { bucket, key } => {
                 let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
                 let client = aws_sdk_s3::Client::new(&config);
@@ -219,7 +221,7 @@ pub struct Service {
     #[serde(default)]
     pub environment: HashMap<String, String>,
     #[serde(default)]
-    pub volumes: HashMap<String, String>,
+    pub volumes: HashMap<String, VolumeDefinition>,
     #[serde(default)]
     pub shutdown_mode: ShutdownMode,
 }
@@ -229,6 +231,14 @@ impl Hash for Service {
         self.image.hash(state);
         self.tag.hash(state);
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct VolumeDefinition {
+    /// The source of the volume, which can be a filesystem path or an S3 bucket/key.
+    pub source: ExternalBytes,
+    /// The target path inside the container where the volume will be mounted.
+    pub target: String,
 }
 
 #[cfg(test)]

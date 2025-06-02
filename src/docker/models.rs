@@ -36,7 +36,14 @@ pub struct ImageSummary {
 pub struct CreateContainerOptions<'a> {
     pub image: String,
     pub env: Vec<String>,
-    pub volumes: &'a HashMap<String, String>,
+    pub volumes: &'a HashMap<String, HashMap<String, String>>,
+    pub host_config: HostConfig,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct HostConfig {
+    pub binds: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

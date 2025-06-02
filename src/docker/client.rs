@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use color_eyre::eyre::{self, Result};
+use color_eyre::eyre::{self, Context, Result};
+use color_eyre::Section;
 use http::Response;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
@@ -12,8 +13,8 @@ use serde::de::DeserializeOwned;
 
 use crate::common::Environment;
 use crate::docker::models::{
-    CreateContainerOptions, CreateContainerResponse, ImageSummary, InspectContainerResponse,
-    NetworkSettings,
+    CreateContainerOptions, CreateContainerResponse, HostConfig, ImageSummary,
+    InspectContainerResponse, NetworkSettings,
 };
 
 use super::models::ContainerId;
@@ -27,7 +28,8 @@ pub trait DockerClient {
         &self,
         image: &str,
         environment: &Option<Environment>,
-        volumes: &HashMap<String, String>,
+        volumes: &HashMap<String, HashMap<String, String>>,
+        docker_volumes: &HashMap<String, String>,
     ) -> Result<ContainerId>;
 
     async fn start_container(&self, id: &ContainerId) -> Result<()>;
@@ -85,16 +87,25 @@ impl DockerClient for Client {
         &self,
         image: &str,
         environment: &Option<Environment>,
-        volumes: &HashMap<String, String>,
+        volumes: &HashMap<String, HashMap<String, String>>,
+        docker_volumes: &HashMap<String, String>,
     ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
 
         let env = format_environment_variables(environment);
 
+        let host_config = HostConfig {
+            binds: docker_volumes
+                .iter()
+                .map(|(host_path, container_path)| format!("{host_path}:{container_path}"))
+                .collect(),
+        };
+
         let options = CreateContainerOptions {
             image: String::from(image),
             env,
             volumes,
+            host_config,
         };
 
         tracing::info!(%image, "Creating a container");
@@ -108,7 +119,9 @@ impl DockerClient for Client {
             .body(Full::new(Bytes::from(body)))?;
 
         let response = self.client.request(request).await?;
-        let body: CreateContainerResponse = deserialize_body(response).await?;
+        let body: CreateContainerResponse = deserialize_body(response)
+            .await
+            .wrap_err_with(|| format!("failed to create container with image {image}"))?;
 
         tracing::info!(?body, "Container created successfully");
 
@@ -143,7 +156,10 @@ impl DockerClient for Client {
             .body(Full::default())?;
 
         let response = self.client.request(request).await?;
-        let payload: InspectContainerResponse = deserialize_body(response).await?;
+        let payload: InspectContainerResponse = deserialize_body(response)
+            .await
+            .wrap_err_with(|| format!("failed to inspect container {id}"))
+            .suggestion("Does the container exist?")?;
 
         let NetworkSettings { ip_address } = payload.network_settings;
 
@@ -229,7 +245,8 @@ where
     T: DeserializeOwned,
 {
     let bytes = read_body(response).await?;
-    let json = serde_json::from_slice(&bytes)?;
+    let decoded = std::str::from_utf8(&bytes)?;
+    let json = serde_json::from_str(decoded)?;
 
     Ok(json)
 }
