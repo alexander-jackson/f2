@@ -54,38 +54,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
-name = "argh"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34ff18325c8a36b82f992e533ece1ec9f9a9db446bd1c14d4f936bac88fcd240"
-dependencies = [
- "argh_derive",
- "argh_shared",
- "rust-fuzzy-search",
-]
-
-[[package]]
-name = "argh_derive"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb7b2b83a50d329d5d8ccc620f5c7064028828538bdf5646acd60dc1f767803"
-dependencies = [
- "argh_shared",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "argh_shared"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a464143cc82dedcdc3928737445362466b7674b5db4e2eb8e869846d6d84f4f6"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "asn1-rs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1607,17 +1575,14 @@ dependencies = [
 [[package]]
 name = "mutual-tls"
 version = "0.1.0"
-source = "git+https://github.com/alexander-jackson/mutual-tls.git?rev=fc1c99b#fc1c99b4b88e11933eae64f53186575853c8e625"
+source = "git+https://github.com/alexander-jackson/mutual-tls.git?rev=981ee61#981ee6137de7166e29b8f185dd2f02756442e752"
 dependencies = [
- "argh",
  "color-eyre",
  "http 1.2.0",
  "http-body-util",
  "hyper 1.5.2",
  "hyper-util",
- "itertools",
  "rustls 0.23.20",
- "rustls-pemfile 2.2.0",
  "tokio",
  "tokio-rustls 0.26.1",
  "tracing",
@@ -1989,12 +1954,6 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
-
-[[package]]
-name = "rust-fuzzy-search"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a157657054ffe556d8858504af8a672a054a6e0bd9e8ee531059100c0fa11bb2"
 
 [[package]]
 name = "rustc-demangle"
