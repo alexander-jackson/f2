@@ -227,7 +227,8 @@ pub mod tests {
             &self,
             image: &str,
             _environment: &Option<Environment>,
-            _volumes: &HashMap<String, String>,
+            _volumes: &HashMap<String, HashMap<String, String>>,
+            _docker_volumes: &HashMap<String, String>,
         ) -> Result<ContainerId> {
             let container_id = ContainerId::random();
 
@@ -334,7 +335,12 @@ pub mod tests {
         let docker_client = FakeDockerClient::default();
 
         let id = docker_client
-            .create_container(&format!("{image}:{tag}"), &None, &HashMap::new())
+            .create_container(
+                &format!("{image}:{tag}"),
+                &None,
+                &HashMap::new(),
+                &HashMap::new(),
+            )
             .await?;
 
         registry.add_container(
@@ -383,7 +389,7 @@ pub mod tests {
 
         let image_and_tag = format!("{image}:{tag}");
         let id = docker_client
-            .create_container(&image_and_tag, &None, &HashMap::new())
+            .create_container(&image_and_tag, &None, &HashMap::new(), &HashMap::new())
             .await?;
 
         registry.define(service, service_definition.clone());

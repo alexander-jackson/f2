@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt};
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use rsa::RsaPrivateKey;
 
-use crate::config::Service;
+use crate::config::{Service, VolumeDefinition};
 use crate::crypto::decrypt;
 
 #[derive(Clone)]
@@ -46,7 +46,7 @@ pub struct Container {
     pub image: String,
     pub target_port: u16,
     pub environment: EncryptedEnvironment,
-    pub volumes: HashMap<String, String>,
+    pub volumes: HashMap<String, VolumeDefinition>,
 }
 
 impl Container {
