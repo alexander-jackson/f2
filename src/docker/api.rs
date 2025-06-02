@@ -117,7 +117,7 @@ fn decrypt_content(content: &[u8], private_key: Option<&RsaPrivateKey>) -> Resul
         return Ok(content.to_vec());
     };
 
-    let Ok(content) = std::str::from_utf8(&content) else {
+    let Ok(content) = std::str::from_utf8(content) else {
         return Err(eyre!("content is not valid UTF-8"));
     };
 

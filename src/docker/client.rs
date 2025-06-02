@@ -246,7 +246,7 @@ where
 {
     let bytes = read_body(response).await?;
     let decoded = std::str::from_utf8(&bytes)?;
-    let json = serde_json::from_str(&decoded)?;
+    let json = serde_json::from_str(decoded)?;
 
     Ok(json)
 }
