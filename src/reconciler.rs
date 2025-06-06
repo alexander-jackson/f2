@@ -215,7 +215,7 @@ pub mod tests {
     use crate::config::{AlbConfig, Config, Diff, ExternalBytes, ReplicaCount, Service};
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::client::DockerClient;
-    use crate::docker::models::{ContainerId, ImageSummary};
+    use crate::docker::models::{ContainerId, ImageSummary, NetworkId};
     use crate::ipc::MessageBus;
     use crate::reconciler::Reconciler;
     use crate::service_registry::ServiceRegistry;
@@ -249,6 +249,8 @@ pub mod tests {
             _environment: &Option<Environment>,
             _volumes: &HashMap<String, HashMap<String, String>>,
             _docker_volumes: &HashMap<String, String>,
+            _hostname: Option<&str>,
+            _network: Option<(&NetworkId, &str)>,
         ) -> Result<ContainerId> {
             let container_id = ContainerId::random();
 
@@ -279,6 +281,10 @@ pub mod tests {
             lock.containers.retain(|c| c.0 != *id);
 
             Ok(())
+        }
+
+        async fn get_network_by_name(&self, _name: &str) -> Result<Option<NetworkId>> {
+            Ok(Some(NetworkId("mesh".to_owned())))
         }
     }
 
@@ -363,6 +369,8 @@ pub mod tests {
                 &None,
                 &HashMap::new(),
                 &HashMap::new(),
+                None,
+                Some((&NetworkId("mesh".to_owned()), "foobar.local")),
             )
             .await?;
 
@@ -412,7 +420,14 @@ pub mod tests {
 
         let image_and_tag = format!("{image}:{tag}");
         let id = docker_client
-            .create_container(&image_and_tag, &None, &HashMap::new(), &HashMap::new())
+            .create_container(
+                &image_and_tag,
+                &None,
+                &HashMap::new(),
+                &HashMap::new(),
+                None,
+                Some((&NetworkId("mesh".to_owned()), "foobar.local")),
+            )
             .await?;
 
         registry.define(service, service_definition.clone());

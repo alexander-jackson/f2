@@ -6,7 +6,7 @@ use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 
 use crate::common::Container;
-use crate::docker::client::DockerClient;
+use crate::docker::client::{DockerClient, DOCKER_NETWORK_NAME};
 use crate::docker::models::ContainerId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -25,9 +25,36 @@ pub async fn create_and_start_container<C: DockerClient>(
     // Ensure the image exists locally
     pull_image_if_needed(client, container, tag).await?;
 
+    // Ensure we have a network for all containers to use
+    let network_id = client
+        .get_network_by_name(DOCKER_NETWORK_NAME)
+        .await?
+        .ok_or_else(|| {
+            eyre!(
+                "Docker network '{}' not found. Please create it before starting containers.",
+                DOCKER_NETWORK_NAME
+            )
+        })?;
+
     // Create the container
     let name = format!("{}:{tag}", container.image);
     let target_port = container.target_port;
+
+    // Create a friendly container name/hostname - just use the last part of the image name
+    // For example, "prom/prometheus" becomes "prometheus", "library/redis" becomes "redis"
+    let container_name = container
+        .image
+        .split('/')
+        .next_back()
+        .unwrap_or(&container.image)
+        .split(':')
+        .next()
+        .unwrap_or(&container.image);
+
+    let hostname = container_name.to_string();
+
+    // Create a unique container name for Docker to avoid conflicts
+    let container_name = format!("{container_name}-{tag}");
 
     let environment = container.decrypt_environment(private_key)?;
     let mut volumes = HashMap::new();
@@ -72,17 +99,33 @@ pub async fn create_and_start_container<C: DockerClient>(
     tracing::debug!(%name, ?volumes, ?docker_volumes, "creating container with the following details");
 
     let id = client
-        .create_container(&name, &environment, &docker_volumes, &volumes)
+        .create_container(
+            &name,
+            &environment,
+            &docker_volumes,
+            &volumes,
+            Some(&container_name),
+            Some((&network_id, &hostname)),
+        )
         .await?;
 
     client.start_container(&id).await?;
 
-    tracing::info!(%id, %name, %target_port, "created and started a container");
+    tracing::info!(%id, %name, %target_port, %hostname, "created and started a container");
 
     // Get the container itself and the port details
     let addr = client.get_container_ip(&id).await?;
 
-    tracing::info!(%container.image, %tag, %id, %addr, "got the IP address for a running container");
+    tracing::info!(
+        %container.image,
+        %tag,
+        %id,
+        %addr,
+        %hostname,
+        %container_name,
+        network = %DOCKER_NETWORK_NAME,
+        "started container"
+    );
 
     Ok(StartedContainerDetails { id, addr })
 }
