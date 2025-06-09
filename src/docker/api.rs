@@ -37,7 +37,11 @@ pub async fn create_and_start_container<C: DockerClient>(
         let content = decrypt_content(&raw_content, private_key)
             .wrap_err_with(|| format!("failed to decrypt content for volume '{name}'"))?;
 
-        let target_filename = Path::new(&definition.target)
+        tracing::info!(%name, ?definition, "processing volume definition");
+
+        // Ensure we're handling paths correctly regardless of trailing slashes
+        let clean_target = definition.target.trim_end_matches('/');
+        let target_filename = Path::new(clean_target)
             .file_name()
             .ok_or_else(|| eyre!("invalid target path: {}", definition.target))?;
 
