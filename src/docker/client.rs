@@ -83,6 +83,7 @@ impl DockerClient for Client {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn create_container(
         &self,
         image: &str,
