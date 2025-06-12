@@ -36,7 +36,7 @@ impl EncryptedEnvironment {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Environment {
     pub variables: HashMap<String, String>,
 }

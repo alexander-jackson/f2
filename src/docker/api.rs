@@ -46,14 +46,14 @@ pub async fn create_and_start_container<C: DockerClient>(
             .ok_or_else(|| eyre!("invalid target path: {}", definition.target))?;
 
         // write the content to a temporary file
-        let path: PathBuf = format!("/tmp/f2/{}/{}/{}", container.image, tag, name).into();
-        let path = path.join(target_filename);
+        let directory: PathBuf = format!("/tmp/f2/{}/{}/{}", container.image, tag, name).into();
+        let path = directory.join(target_filename);
 
         // Ensure the directory exists and write the content
-        std::fs::create_dir_all(Path::new(&path).parent().unwrap())?;
+        std::fs::create_dir_all(&directory)?;
         std::fs::write(&path, content)?;
 
-        tracing::info!(?path, "wrote volume content to temporary file");
+        tracing::info!(?directory, ?path, "wrote volume content to temporary file");
 
         volumes.insert(
             path.to_string_lossy().into_owned(),
