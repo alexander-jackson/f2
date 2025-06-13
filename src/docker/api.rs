@@ -33,11 +33,14 @@ pub async fn create_and_start_container<C: DockerClient>(
     let mut volumes = HashMap::new();
 
     for (name, definition) in &container.volumes {
+        let span = tracing::info_span!("processing a volume definition", %name, ?definition);
+        let _guard = span.enter();
+
         let raw_content = definition.source.resolve().await?;
         let content = decrypt_content(&raw_content, private_key)
             .wrap_err_with(|| format!("failed to decrypt content for volume '{name}'"))?;
 
-        tracing::info!(%name, ?definition, "processing volume definition");
+        tracing::info!(bytes = %content.len(), "decrypted content for volume");
 
         // Ensure we're handling paths correctly regardless of trailing slashes
         let clean_target = definition.target.trim_end_matches('/');
@@ -66,7 +69,7 @@ pub async fn create_and_start_container<C: DockerClient>(
         .map(|target_path| (target_path.clone(), HashMap::<String, String>::new()))
         .collect::<HashMap<_, _>>();
 
-    tracing::debug!(%name, ?volumes, "creating container with the following details");
+    tracing::debug!(%name, ?volumes, ?docker_volumes, "creating container with the following details");
 
     let id = client
         .create_container(&name, &environment, &docker_volumes, &volumes)
@@ -74,12 +77,12 @@ pub async fn create_and_start_container<C: DockerClient>(
 
     client.start_container(&id).await?;
 
-    tracing::info!(%id, %name, %target_port, "Created and started a container");
+    tracing::info!(%id, %name, %target_port, "created and started a container");
 
     // Get the container itself and the port details
     let addr = client.get_container_ip(&id).await?;
 
-    tracing::info!(%container.image, %tag, %id, %addr, "Started a container and got the IP address");
+    tracing::info!(%container.image, %tag, %id, %addr, "got the IP address for a running container");
 
     Ok(StartedContainerDetails { id, addr })
 }

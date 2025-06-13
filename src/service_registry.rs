@@ -43,10 +43,9 @@ impl ServiceRegistry {
         self.containers.get(service)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn add_container(&mut self, service: &str, details: StartedContainerDetails) {
-        let StartedContainerDetails { id, addr } = &details;
-
-        tracing::debug!("Adding ({id}, {addr}) as a downstream for {service}");
+        tracing::info!("adding a downstream container");
 
         self.containers
             .entry(service.to_string())
