@@ -83,7 +83,7 @@ impl DockerClient for Client {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, environment))]
     async fn create_container(
         &self,
         image: &str,
@@ -102,14 +102,14 @@ impl DockerClient for Client {
                 .collect(),
         };
 
+        tracing::info!(?volumes, ?host_config, "creating a container");
+
         let options = CreateContainerOptions {
             image: String::from(image),
             env,
             volumes,
             host_config,
         };
-
-        tracing::info!(%image, "Creating a container");
 
         let body = serde_json::to_vec(&options)?;
 
@@ -124,7 +124,7 @@ impl DockerClient for Client {
             .await
             .wrap_err_with(|| format!("failed to create container with image {image}"))?;
 
-        tracing::info!(?body, "Container created successfully");
+        tracing::info!(?body, "container created successfully");
 
         Ok(body.id)
     }
