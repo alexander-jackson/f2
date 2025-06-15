@@ -87,6 +87,7 @@ pub async fn create_and_start_container<C: DockerClient>(
     Ok(StartedContainerDetails { id, addr })
 }
 
+#[tracing::instrument(skip(client))]
 async fn pull_image_if_needed<C: DockerClient>(
     client: &C,
     container: &Container,
@@ -97,22 +98,22 @@ async fn pull_image_if_needed<C: DockerClient>(
 
     let local_images = client.fetch_images().await?;
 
-    // Find all the ones with tags
+    // Find all the ones with matching tags
     let exists = local_images
         .iter()
         .any(|image| image.repo_tags.contains(&expected_tag));
 
     if exists {
-        tracing::info!(?container, %tag, "Image already exists locally");
+        tracing::info!("image already exists locally");
         return Ok(());
     }
 
-    tracing::info!(?container, %tag, "Image does not exist locally, pulling from repository");
+    tracing::info!("image does not exist locally, pulling from repository");
 
     // Pull the image from the remote
     client.pull_image(&container.image, tag).await?;
 
-    tracing::info!(?container, %tag, "Successfully pulled the image from the repository");
+    tracing::info!("successfully pulled the image from the repository");
 
     Ok(())
 }

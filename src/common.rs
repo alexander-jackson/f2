@@ -16,7 +16,7 @@ impl EncryptedEnvironment {
         let mut variables = HashMap::new();
 
         for (key, value) in self.variables.clone().into_iter() {
-            tracing::info!("Resolving secret for {key}");
+            tracing::info!(%key, "resolving secret");
 
             let value = match value.strip_prefix("secret:") {
                 Some(value) => {
