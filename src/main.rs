@@ -112,7 +112,7 @@ async fn start_services<C: DockerClient>(
         let tag = &service.tag;
         let container = Container::from(service);
 
-        tracing::info!("Starting {name} with tag {tag}");
+        tracing::info!(%name, %tag, "starting service");
 
         for _ in 0..service.replicas.get() {
             let details = create_and_start_container(client, &container, tag, private_key).await?;

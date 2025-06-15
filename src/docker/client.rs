@@ -133,7 +133,7 @@ impl DockerClient for Client {
         let path = format!("/containers/{id}/start");
         let uri = self.build_uri(&path);
 
-        tracing::info!(?id, "Starting a container");
+        tracing::info!(?id, "starting a container");
 
         let request = Request::builder()
             .uri(uri)
@@ -149,7 +149,7 @@ impl DockerClient for Client {
         let path = format!("/containers/{id}/json");
         let uri = self.build_uri(&path);
 
-        tracing::info!(?id, "Fetching exposed ports for a container");
+        tracing::info!(?id, "fetching exposed ports for a container");
 
         let request = Request::builder()
             .uri(uri)
@@ -171,7 +171,7 @@ impl DockerClient for Client {
         let path = format!("/containers/{id}/stop?signal=SIGTERM&t=15");
         let uri = self.build_uri(&path);
 
-        tracing::info!(%id, "Stopping a container");
+        tracing::info!(%id, "stopping a container");
 
         let request = Request::builder()
             .uri(uri)
@@ -187,7 +187,7 @@ impl DockerClient for Client {
         let path = format!("/containers/{id}?force=true");
         let uri = self.build_uri(&path);
 
-        tracing::info!(%id, "Removing a container forcefully");
+        tracing::info!(%id, "removing a container forcefully");
 
         let request = Request::builder()
             .uri(uri)
@@ -202,7 +202,7 @@ impl DockerClient for Client {
 
 impl Client {
     pub fn new(base: &str) -> Self {
-        tracing::debug!(%base, "Created a new Docker client");
+        tracing::debug!(%base, "created a new Docker client");
 
         Self {
             client: HyperClient::unix(),
