@@ -107,7 +107,7 @@ impl DockerClient for Client {
         let options = CreateContainerOptions {
             image: String::from(image),
             env,
-            volumes,
+            volumes: &HashMap::new(),
             host_config,
         };
 
