@@ -1,9 +1,6 @@
 /target
 f2.yaml
 
-*.sh
-*.key
 .env
-Justfile
 
-crypto/**
+crypto/prod/**
