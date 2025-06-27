@@ -46,6 +46,25 @@ pub struct Client {
     base: String,
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        let base = String::from("/var/run/docker.sock");
+
+        tracing::debug!(%base, "created a new Docker client");
+
+        Self {
+            client: HyperClient::unix(),
+            base,
+        }
+    }
+}
+
+impl Client {
+    fn build_uri(&self, endpoint: &str) -> Uri {
+        hyperlocal::Uri::new(&self.base, endpoint).into()
+    }
+}
+
 #[async_trait::async_trait]
 impl DockerClient for Client {
     async fn fetch_images(&self) -> Result<Vec<ImageSummary>> {
@@ -200,21 +219,6 @@ impl DockerClient for Client {
     }
 }
 
-impl Client {
-    pub fn new(base: &str) -> Self {
-        tracing::debug!(%base, "created a new Docker client");
-
-        Self {
-            client: HyperClient::unix(),
-            base: String::from(base),
-        }
-    }
-
-    fn build_uri(&self, endpoint: &str) -> Uri {
-        hyperlocal::Uri::new(&self.base, endpoint).into()
-    }
-}
-
 fn format_environment_variables(environment: &Option<Environment>) -> Vec<String> {
     let Some(environment) = environment else {
         return Vec::new();
@@ -227,16 +231,14 @@ fn format_environment_variables(environment: &Option<Environment>) -> Vec<String
         .collect()
 }
 
-async fn read_body(mut response: Response<Incoming>) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
+async fn read_body(response: Response<Incoming>) -> Result<Bytes> {
+    let collected = response
+        .into_body()
+        .collect()
+        .await
+        .wrap_err("failed to read response body")?;
 
-    while let Some(frame_result) = response.frame().await {
-        let frame = frame_result?;
-
-        if let Some(segment) = frame.data_ref() {
-            bytes.extend_from_slice(segment);
-        }
-    }
+    let bytes = collected.to_bytes();
 
     Ok(bytes)
 }

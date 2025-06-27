@@ -19,74 +19,70 @@ use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::{Config, MtlsConfig, TlsConfig};
-use crate::docker::client::DockerClient;
-use crate::reconciler::Reconciler;
+use crate::ipc::MessageBus;
+use crate::load_balancer::tls::CertificateResolver;
 use crate::service_registry::ServiceRegistry;
-
-use self::tls::CertificateResolver;
 
 mod proxy;
 mod tls;
 
 #[derive(Debug)]
-pub struct LoadBalancer<C: DockerClient> {
+pub struct LoadBalancer {
     service_registry: Arc<RwLock<ServiceRegistry>>,
     client: Client<HttpConnector, Incoming>,
     rng: Arc<Mutex<SmallRng>>,
-    reconciler_path: Arc<str>,
-    reconciler: Arc<Reconciler<C>>,
     config: Arc<ArcSwap<Config>>,
+    message_bus: Arc<MessageBus>,
 }
 
-impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
+impl LoadBalancer {
     pub fn new(
         service_registry: Arc<RwLock<ServiceRegistry>>,
-        reconciler_path: &str,
-        reconciler: Reconciler<C>,
         config: Arc<ArcSwap<Config>>,
+        message_bus: Arc<MessageBus>,
     ) -> Self {
         let client = Client::builder(TokioExecutor::new()).build_http();
         let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
-        let reconciler_path = Arc::from(reconciler_path);
-        let reconciler = Arc::new(reconciler);
 
         Self {
             service_registry,
             client,
             rng,
-            reconciler_path,
-            reconciler,
             config,
+            message_bus,
         }
     }
 
-    pub async fn start(
+    pub async fn run(
         self,
         listener: TcpListener,
         tls: Option<TlsConfig>,
         mtls: Option<MtlsConfig>,
     ) -> Result<()> {
+        let reconciliation_path = Arc::from(self.config.load().alb.reconciliation.as_str());
+        let message_bus = Arc::clone(&self.message_bus);
+
         let service_factory = move |_| {
             let service_registry = Arc::clone(&self.service_registry);
             let rng = Arc::clone(&self.rng);
             let client = self.client.clone();
-            let reconciler_path = Arc::clone(&self.reconciler_path);
-            let reconciler = Arc::clone(&self.reconciler);
+            let reconciliation_path = Arc::clone(&reconciliation_path);
+            let message_bus = Arc::clone(&message_bus);
 
             service_fn(move |req| {
                 let service_registry = Arc::clone(&service_registry);
                 let rng = Arc::clone(&rng);
                 let client = client.clone();
-                let reconciler_path = Arc::clone(&reconciler_path);
-                let reconciler = Arc::clone(&reconciler);
+                let reconciliation_path = Arc::clone(&reconciliation_path);
+                let message_bus = Arc::clone(&message_bus);
 
                 async move {
                     proxy::handle_request(
                         service_registry,
                         rng,
                         client,
-                        reconciler_path,
-                        reconciler,
+                        reconciliation_path,
+                        message_bus,
                         req,
                     )
                     .await
@@ -111,7 +107,11 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
                 None => Arc::new(NoClientAuth),
             };
 
-            let certificate_resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
+            let config = Arc::new(tls.domains);
+            let message_bus = Arc::clone(&self.message_bus);
+
+            let certificate_resolver =
+                Arc::new(CertificateResolver::new(config, message_bus).await?);
             let authentication_level_resolver =
                 DynamicAuthenticationLevelResolver::new(Arc::clone(&self.config));
 
