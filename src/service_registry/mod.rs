@@ -5,14 +5,9 @@ use indexmap::IndexSet;
 use crate::config::Service;
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
+use crate::service_registry::matching::PathMatchCalculator;
 
-fn compute_path_prefix_match(path: &str, prefix: Option<&str>) -> usize {
-    let Some(prefix) = prefix else {
-        return path.len();
-    };
-
-    path.strip_prefix(prefix).map_or(usize::MAX, str::len)
-}
+mod matching;
 
 /// Registry of all of the running services.
 #[derive(Debug, Default)]
@@ -71,7 +66,11 @@ impl ServiceRegistry {
         self.definitions
             .iter()
             .filter(|entry| entry.1.host == host)
-            .min_by_key(|entry| compute_path_prefix_match(path, entry.1.path_prefix.as_deref()))
+            .min_by_key(|entry| {
+                let calculator = PathMatchCalculator::new(path, entry.1.path_prefix.as_deref());
+
+                calculator.compute_match_length()
+            })
             .and_then(|entry| {
                 self.get_running_containers(entry.0)
                     .map(|downstreams| (downstreams, entry.1.port))

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -17,13 +16,11 @@ use hyper_util::server::conn::auto::Builder;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use crate::args::ConfigurationLocation;
 use crate::config::{AlbConfig, Config, Service};
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
+use crate::ipc::MessageBus;
 use crate::load_balancer::LoadBalancer;
-use crate::reconciler::tests::FakeDockerClient;
-use crate::reconciler::Reconciler;
 use crate::service_registry::ServiceRegistry;
 
 fn create_service<T: Into<Option<&'static str>>>(
@@ -102,22 +99,14 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
     };
 
     let config = Arc::new(ArcSwap::from_pointee(config));
+    let message_bus = MessageBus::new();
 
     tokio::spawn(async move {
-        let load_balancer = LoadBalancer::new(
-            Arc::clone(&service_registry),
-            "/reconciliation",
-            Reconciler::new(
-                Arc::clone(&service_registry),
-                ConfigurationLocation::Filesystem(PathBuf::new()),
-                Arc::clone(&config),
-                FakeDockerClient::default(),
-            ),
-            Arc::clone(&config),
-        );
+        let message_bus = Arc::clone(&message_bus);
+        let load_balancer = LoadBalancer::new(service_registry, config, message_bus);
 
         load_balancer
-            .start(listener, None, None)
+            .run(listener, None, None)
             .await
             .expect("Failed to run load balancer");
     });
@@ -145,12 +134,11 @@ async fn can_proxy_requests_based_on_host_header() -> Result<()> {
     add_container(&mut service_registry, "opentracker");
     add_container(&mut service_registry, "blackboards");
 
-    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
-
+    let addr = spawn_load_balancer(service_registry).await?;
     let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
-        .uri(format!("http://{}", load_balancer_addr))
+        .uri(format!("http://{}", addr))
         .header(HOST, "blackboards.pl")
         .body(Full::default())?;
 
@@ -187,12 +175,11 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     service_registry.define("service", create_service(host, resolved_addr.port(), None));
     add_container(&mut service_registry, "service");
 
-    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
-
+    let addr = spawn_load_balancer(service_registry).await?;
     let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
-        .uri(format!("http://{}/health", load_balancer_addr))
+        .uri(format!("http://{}/health", addr))
         .header(HOST, host)
         .body(Full::<Bytes>::default())?;
 
@@ -201,7 +188,7 @@ async fn request_paths_are_proxied_downstream() -> Result<()> {
     assert_eq!(response.status(), StatusCode::OK);
 
     let request = Request::builder()
-        .uri(format!("http://{}/something-else", load_balancer_addr))
+        .uri(format!("http://{}/something-else", addr))
         .header(HOST, host)
         .body(Full::default())?;
 
@@ -243,19 +230,18 @@ async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
     add_container(&mut service_registry, "frontend");
     add_container(&mut service_registry, "backend");
 
-    let load_balancer_addr = spawn_load_balancer(service_registry).await?;
-
+    let addr = spawn_load_balancer(service_registry).await?;
     let client = Client::builder(TokioExecutor::new()).build_http();
 
     let request = Request::builder()
-        .uri(format!("http://{load_balancer_addr}/health"))
+        .uri(format!("http://{}/health", addr))
         .header(HOST, "opentracker.app")
         .body(Full::default())?;
 
     assert_eq!(get_response_body(&client, request).await?, frontend_reply);
 
     let request = Request::builder()
-        .uri(format!("http://{load_balancer_addr}/api/health"))
+        .uri(format!("http://{}/api/health", addr))
         .header(HOST, "opentracker.app")
         .body(Full::default())?;
 

@@ -1,36 +1,12 @@
 use std::path::PathBuf;
 
-use aws_config::BehaviorVersion;
 use color_eyre::eyre::{eyre, Result};
 use color_eyre::Report;
 
+use crate::config::ExternalBytes;
+
 pub struct Args {
-    pub config_location: ConfigurationLocation,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ConfigurationLocation {
-    S3 { bucket: String, key: String },
-    Filesystem(PathBuf),
-}
-
-impl ConfigurationLocation {
-    pub async fn fetch(&self) -> Result<Vec<u8>> {
-        let bytes = match self {
-            Self::Filesystem(path) => tokio::fs::read(path).await?,
-            Self::S3 { bucket, key } => {
-                let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-                let client = aws_sdk_s3::Client::new(&config);
-
-                let response = client.get_object().bucket(bucket).key(key).send().await?;
-                let bytes = response.body.collect().await?;
-
-                bytes.to_vec()
-            }
-        };
-
-        Ok(bytes)
-    }
+    pub config_location: ExternalBytes,
 }
 
 impl Args {
@@ -53,12 +29,14 @@ impl TryFrom<pico_args::Arguments> for Args {
                     .split_once('/')
                     .ok_or_else(|| eyre!("invalid s3 bucket and key provided: {bucket_and_key}"))?;
 
-                ConfigurationLocation::S3 {
+                ExternalBytes::S3 {
                     bucket: bucket.to_owned(),
                     key: key.to_owned(),
                 }
             }
-            None => ConfigurationLocation::Filesystem(PathBuf::from(config)),
+            None => ExternalBytes::Filesystem {
+                path: PathBuf::from(config),
+            },
         };
 
         Ok(Self { config_location })
@@ -72,7 +50,8 @@ mod tests {
 
     use color_eyre::Result;
 
-    use crate::args::{Args, ConfigurationLocation};
+    use crate::args::Args;
+    use crate::config::ExternalBytes;
 
     #[test]
     fn can_determine_filesystem_config() -> Result<()> {
@@ -81,7 +60,9 @@ mod tests {
         let args = pico_args::Arguments::from_vec(raw_args);
         let parsed = Args::try_from(args)?;
 
-        let expected = ConfigurationLocation::Filesystem(PathBuf::from("f2.yaml"));
+        let expected = ExternalBytes::Filesystem {
+            path: PathBuf::from("f2.yaml"),
+        };
 
         assert_eq!(parsed.config_location, expected);
 
@@ -98,7 +79,7 @@ mod tests {
         let args = pico_args::Arguments::from_vec(raw_args);
         let parsed = Args::try_from(args)?;
 
-        let expected = ConfigurationLocation::S3 {
+        let expected = ExternalBytes::S3 {
             bucket: String::from("some-bucket"),
             key: String::from("some-key.yaml"),
         };

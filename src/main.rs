@@ -18,6 +18,7 @@ use crate::args::Args;
 use crate::common::Container;
 use crate::config::{Config, Service};
 use crate::docker::api::create_and_start_container;
+use crate::ipc::MessageBus;
 use crate::load_balancer::LoadBalancer;
 use crate::reconciler::Reconciler;
 
@@ -27,6 +28,7 @@ mod config;
 mod crypto;
 mod docker;
 mod health;
+mod ipc;
 mod load_balancer;
 mod reconciler;
 mod service_registry;
@@ -66,7 +68,7 @@ async fn main() -> Result<()> {
     let mut service_registry = ServiceRegistry::new();
     let private_key = config.load().get_private_key().await?;
 
-    let docker_client = Client::new("/var/run/docker.sock");
+    let docker_client = Client::default();
     let services = &config.load().services;
 
     start_services(
@@ -78,24 +80,20 @@ async fn main() -> Result<()> {
     .await?;
 
     let service_registry = Arc::new(RwLock::new(service_registry));
-    let reconciliation_path = alb_config.reconciliation.clone();
+    let message_bus = MessageBus::new();
 
     let reconciler = Reconciler::new(
         Arc::clone(&service_registry),
         args.config_location.clone(),
         Arc::clone(&config),
         docker_client,
+        Arc::clone(&message_bus),
     );
 
     let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
-    let load_balancer = LoadBalancer::new(
-        service_registry,
-        &reconciliation_path,
-        reconciler,
-        Arc::clone(&config),
-    );
+    let load_balancer = LoadBalancer::new(service_registry, config, message_bus);
 
-    load_balancer.start(listener, tls, mtls).await?;
+    tokio::try_join!(load_balancer.run(listener, tls, mtls), reconciler.run())?;
 
     Ok(())
 }

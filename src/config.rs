@@ -10,7 +10,6 @@ use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 use serde::Deserialize;
 
-use crate::args::ConfigurationLocation;
 use crate::crypto::parse_private_key;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,9 +36,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn from_location(location: &ConfigurationLocation) -> Result<Self> {
+    pub async fn from_location(location: &ExternalBytes) -> Result<Self> {
         let bytes = location
-            .fetch()
+            .resolve()
             .await
             .with_context(|| "Failed to fetch configuration")?;
 
@@ -125,6 +124,14 @@ pub struct TlsSecrets {
 }
 
 impl TlsSecrets {
+    #[cfg(test)]
+    pub fn new(cert_file: ExternalBytes, key_file: ExternalBytes) -> Self {
+        Self {
+            cert_file,
+            key_file,
+        }
+    }
+
     pub async fn resolve_files(&self) -> Result<(Vec<u8>, Vec<u8>)> {
         let cert = self.cert_file.resolve().await?;
         let key = self.key_file.resolve().await?;

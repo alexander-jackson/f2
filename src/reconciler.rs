@@ -5,37 +5,54 @@ use color_eyre::eyre::{eyre, Result};
 use indexmap::IndexSet;
 use tokio::sync::RwLock;
 
-use crate::args::ConfigurationLocation;
 use crate::common::Container;
-use crate::config::{Config, Diff, ReplicaCount, Service, ShutdownMode};
+use crate::config::{Config, Diff, ExternalBytes, ReplicaCount, Service, ShutdownMode};
 use crate::docker::api::{create_and_start_container, StartedContainerDetails};
 use crate::docker::client::DockerClient;
+use crate::ipc::MessageBus;
 use crate::service_registry::ServiceRegistry;
 
 #[derive(Debug)]
 pub struct Reconciler<C: DockerClient> {
     registry: Arc<RwLock<ServiceRegistry>>,
-    config_location: Arc<ConfigurationLocation>,
+    config_location: Arc<ExternalBytes>,
     config: Arc<ArcSwap<Config>>,
     docker_client: C,
+    message_bus: Arc<MessageBus>,
 }
 
 impl<C: DockerClient> Reconciler<C> {
     pub fn new(
         registry: Arc<RwLock<ServiceRegistry>>,
-        config_location: ConfigurationLocation,
+        config_location: ExternalBytes,
         config: Arc<ArcSwap<Config>>,
         docker_client: C,
+        message_bus: Arc<MessageBus>,
     ) -> Self {
         Self {
             registry,
             config_location: Arc::new(config_location),
             config,
             docker_client,
+            message_bus,
         }
     }
 
-    pub async fn reconcile(&self) -> Result<()> {
+    pub async fn run(&self) -> Result<()> {
+        while self
+            .message_bus
+            .receive_reconciliation_request()
+            .await
+            .is_ok()
+        {
+            tracing::info!("received signal to reconcile");
+            self.reconcile().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn reconcile(&self) -> Result<()> {
         let new_config = Config::from_location(&self.config_location).await?;
         let old_config = self.config.load();
 
@@ -59,6 +76,7 @@ impl<C: DockerClient> Reconciler<C> {
         read_lock.get_running_containers(name).cloned()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn start_multiple_containers(
         &self,
         name: &str,
@@ -93,6 +111,7 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_alteration(
         &self,
         name: &str,
@@ -131,6 +150,7 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_addition(&self, name: String, definition: Service) -> Result<()> {
         let replicas = definition.replicas;
 
@@ -140,6 +160,7 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_removal(&self, name: String) -> Result<()> {
         let running_containers = self.get_running_containers(&name).await;
 
@@ -160,9 +181,8 @@ impl<C: DockerClient> Reconciler<C> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_diff(&self, diff: Diff) -> Result<()> {
-        tracing::info!("Handling a diff: {diff:?}");
-
         match diff {
             Diff::Alteration {
                 name,
@@ -191,12 +211,12 @@ pub mod tests {
     use color_eyre::eyre::Result;
     use tokio::sync::RwLock;
 
-    use crate::args::ConfigurationLocation;
     use crate::common::Environment;
-    use crate::config::{AlbConfig, Config, Diff, ReplicaCount, Service};
+    use crate::config::{AlbConfig, Config, Diff, ExternalBytes, ReplicaCount, Service};
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::client::DockerClient;
     use crate::docker::models::{ContainerId, ImageSummary};
+    use crate::ipc::MessageBus;
     use crate::reconciler::Reconciler;
     use crate::service_registry::ServiceRegistry;
 
@@ -282,9 +302,12 @@ pub mod tests {
 
         Reconciler::new(
             Arc::new(RwLock::new(registry)),
-            ConfigurationLocation::Filesystem(PathBuf::new()),
+            ExternalBytes::Filesystem {
+                path: PathBuf::new(),
+            },
             Arc::new(config),
             docker_client,
+            MessageBus::new(),
         )
     }
 
