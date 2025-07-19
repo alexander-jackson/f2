@@ -63,7 +63,7 @@ pub async fn handle_request<C: DockerClient>(
 
     let path_and_query = uri.path_and_query().map_or("/", PathAndQuery::as_str);
 
-    tracing::info!(%downstream, %path_and_query, "Proxing request to a downstream server");
+    tracing::debug!(%downstream, %path_and_query, "proxing request to a downstream server");
 
     let addr = SocketAddrV4::new(downstream, port);
     *req.uri_mut() = format!("http://{addr}{path_and_query}").parse()?;
