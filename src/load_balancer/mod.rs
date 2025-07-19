@@ -9,12 +9,12 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
-use mutual_tls::{ConnectionContext, MutualTlsServer};
+use mutual_tls::{ConnectionContext, ServerConfiguration};
 use rand::prelude::{SeedableRng, SmallRng};
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{NoClientAuth, WebPkiClientVerifier};
 use rustls::RootCertStore;
-use tls::DynamicProtocolResolver;
+use tls::DynamicAuthenticationLevelResolver;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 
@@ -95,7 +95,7 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
         };
 
         if let Some(tls) = tls {
-            let verifier: Arc<dyn ClientCertVerifier> = match &mtls {
+            let client_cert_verifier: Arc<dyn ClientCertVerifier> = match &mtls {
                 Some(config) => {
                     let bytes = config.anchor.resolve().await?;
                     let mut cursor = Cursor::new(bytes);
@@ -111,10 +111,18 @@ impl<C: DockerClient + Sync + Send + 'static> LoadBalancer<C> {
                 None => Arc::new(NoClientAuth),
             };
 
-            let resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
-            let protocols = DynamicProtocolResolver::new(Arc::clone(&self.config));
+            let certificate_resolver = Arc::new(CertificateResolver::new(&tls.domains).await?);
+            let authentication_level_resolver =
+                DynamicAuthenticationLevelResolver::new(Arc::clone(&self.config));
 
-            let server = MutualTlsServer::new(protocols, verifier, resolver, service_factory);
+            let server_configuration = ServerConfiguration::default();
+            let server = mutual_tls::Server::new(
+                authentication_level_resolver,
+                client_cert_verifier,
+                certificate_resolver,
+                service_factory,
+                server_configuration,
+            );
 
             server.run(listener).await;
         } else {
