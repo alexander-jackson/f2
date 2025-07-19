@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use color_eyre::eyre::{eyre, Result};
 use itertools::Itertools;
-use mutual_tls::{Protocol, ProtocolResolver};
+use mutual_tls::{AuthenticationLevel, AuthenticationLevelResolver};
 use rustls::crypto::ring::sign::any_supported_type;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::server::{ClientHello, ResolvesServerCert};
@@ -78,28 +78,28 @@ impl ResolvesServerCert for CertificateResolver {
 }
 
 #[derive(Debug)]
-pub struct DynamicProtocolResolver {
+pub struct DynamicAuthenticationLevelResolver {
     config: Arc<ArcSwap<Config>>,
 }
 
-impl DynamicProtocolResolver {
+impl DynamicAuthenticationLevelResolver {
     pub fn new(config: Arc<ArcSwap<Config>>) -> Arc<Self> {
         Arc::new(Self { config })
     }
 }
 
-impl ProtocolResolver for DynamicProtocolResolver {
-    fn resolve(&self, client_hello: &str) -> Option<Protocol> {
+impl AuthenticationLevelResolver for DynamicAuthenticationLevelResolver {
+    fn resolve(&self, client_hello: &str) -> Option<AuthenticationLevel> {
         let config = self.config.load();
 
         let Some(mtls) = config.alb.mtls.as_ref() else {
-            return Some(Protocol::Public);
+            return Some(AuthenticationLevel::Standard);
         };
 
         if mtls.domains.contains(client_hello) {
-            Some(Protocol::Mutual)
+            Some(AuthenticationLevel::Mutual)
         } else {
-            Some(Protocol::Public)
+            Some(AuthenticationLevel::Standard)
         }
     }
 }
@@ -112,10 +112,10 @@ mod tests {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
-    use mutual_tls::Protocol;
+    use mutual_tls::{AuthenticationLevel, AuthenticationLevelResolver};
 
     use crate::config::{AlbConfig, Config, ExternalBytes, MtlsConfig};
-    use crate::load_balancer::tls::{DynamicProtocolResolver, ProtocolResolver};
+    use crate::load_balancer::tls::DynamicAuthenticationLevelResolver;
 
     #[test]
     fn configuration_updates_propagate_immediately() {
@@ -142,10 +142,16 @@ mod tests {
         };
 
         let config = Arc::new(ArcSwap::from_pointee(original_config.clone()));
-        let resolver = DynamicProtocolResolver::new(Arc::clone(&config));
+        let resolver = DynamicAuthenticationLevelResolver::new(Arc::clone(&config));
 
-        assert!(matches!(resolver.resolve(&domain1), Some(Protocol::Mutual)));
-        assert!(matches!(resolver.resolve(&domain2), Some(Protocol::Public)));
+        assert!(matches!(
+            resolver.resolve(&domain1),
+            Some(AuthenticationLevel::Mutual)
+        ));
+        assert!(matches!(
+            resolver.resolve(&domain2),
+            Some(AuthenticationLevel::Standard)
+        ));
 
         original_config
             .alb
@@ -157,7 +163,13 @@ mod tests {
 
         config.store(Arc::new(original_config));
 
-        assert!(matches!(resolver.resolve(&domain1), Some(Protocol::Mutual)));
-        assert!(matches!(resolver.resolve(&domain2), Some(Protocol::Mutual)));
+        assert!(matches!(
+            resolver.resolve(&domain1),
+            Some(AuthenticationLevel::Mutual)
+        ));
+        assert!(matches!(
+            resolver.resolve(&domain2),
+            Some(AuthenticationLevel::Mutual)
+        ));
     }
 }
