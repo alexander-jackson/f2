@@ -2,6 +2,7 @@ use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result};
+use http::header::AUTHORIZATION;
 use http::Method;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
@@ -32,27 +33,10 @@ where
 {
     let uri = req.uri();
 
-    if req.method() == Method::PUT {
-        match uri.path_and_query() {
-            Some(suffix) if suffix.path() == &*reconciliation_path => {
-                tracing::info!(
-                    %reconciliation_path,
-                    "informing the reconciler that a PUT request was received",
-                );
-
-                message_bus.send_reconciliation_request()?;
-                return Ok(Response::builder().status(200).body(empty())?);
-            }
-            Some(suffix) if suffix.path() == "/certificates" => {
-                tracing::info!(
-                    "informing the certificate resolver that a PUT request was received"
-                );
-
-                message_bus.send_certificate_update_request()?;
-                return Ok(Response::builder().status(200).body(empty())?);
-            }
-            _ => {}
-        }
+    if let Some(response) =
+        check_for_admin_commands(&uri, &req, &message_bus, &reconciliation_path, "").await?
+    {
+        return Ok(response);
     }
 
     let host = req
@@ -93,6 +77,72 @@ where
     Ok(client.request(req).await?.map(BoxBody::new))
 }
 
+async fn check_for_admin_commands<B>(
+    uri: &http::uri::Uri,
+    request: &Request<B>,
+    message_bus: &Arc<MessageBus>,
+    reconciliation_path: &Arc<str>,
+    passphrase: &str,
+) -> Result<Option<Response<BoxBody<Bytes, hyper::Error>>>> {
+    if request.method() != Method::PUT {
+        return Ok(None);
+    }
+
+    let Some(suffix) = uri.path_and_query().map(PathAndQuery::path) else {
+        return Ok(None);
+    };
+
+    if *suffix == **reconciliation_path {
+        if !is_admin_request_authorised(request, passphrase) {
+            tracing::warn!(
+                %reconciliation_path,
+                "unauthorised PUT request to reconciliation path",
+            );
+
+            return Ok(Some(Response::builder().status(403).body(empty())?));
+        }
+
+        tracing::info!(
+            %reconciliation_path,
+            "informing the reconciler that a PUT request was received",
+        );
+
+        message_bus.send_reconciliation_request()?;
+        return Ok(Some(Response::builder().status(200).body(empty())?));
+    }
+
+    if suffix == "/certificates" {
+        if !is_admin_request_authorised(request, passphrase) {
+            tracing::warn!("unauthorised PUT request to certificate resolver path");
+
+            return Ok(Some(Response::builder().status(403).body(empty())?));
+        }
+
+        tracing::info!("informing the certificate resolver that a PUT request was received");
+
+        message_bus.send_certificate_update_request()?;
+        return Ok(Some(Response::builder().status(200).body(empty())?));
+    }
+
+    Ok(None)
+}
+
+fn is_admin_request_authorised<B>(request: &Request<B>, passphase: &str) -> bool {
+    let Some(header) = request.headers().get(AUTHORIZATION) else {
+        return false;
+    };
+
+    let Ok(content) = header.to_str() else {
+        return false;
+    };
+
+    let Some(received_passphase) = content.strip_prefix("Bearer ") else {
+        return false;
+    };
+
+    return received_passphase == passphase;
+}
+
 fn empty() -> BoxBody<Bytes, hyper::Error> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
@@ -105,7 +155,7 @@ mod tests {
     use std::time::Duration;
 
     use color_eyre::eyre::Result;
-    use http::Request;
+    use http::{Method, Request};
     use http_body_util::Empty;
     use hyper::body::Bytes;
     use hyper_util::client::legacy::connect::HttpConnector;
@@ -116,7 +166,7 @@ mod tests {
     use tokio::sync::{Mutex, RwLock};
 
     use crate::ipc::MessageBus;
-    use crate::load_balancer::proxy::handle_request;
+    use crate::load_balancer::proxy::{handle_request, is_admin_request_authorised};
     use crate::service_registry::ServiceRegistry;
 
     /// Gets all the dependencies required for calling `handle_request`.
@@ -143,11 +193,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn can_cause_reconciliation() -> Result<()> {
+    async fn can_trigger_reconciliation() -> Result<()> {
         let (service_registry, rng, client, reconciliation_path, message_bus) = get_dependencies();
 
         let req = Request::builder()
-            .method("PUT")
+            .method(Method::PUT)
             .uri(format!("http://example.com{}", reconciliation_path))
             .body(Empty::<Bytes>::new())
             .unwrap();
@@ -176,11 +226,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn can_cause_certificate_updates() -> Result<()> {
+    async fn can_trigger_certificate_updates() -> Result<()> {
         let (service_registry, rng, client, reconciliation_path, message_bus) = get_dependencies();
 
         let req = Request::builder()
-            .method("PUT")
+            .method(Method::PUT)
             .uri("http://example.com/certificates")
             .body(Empty::<Bytes>::new())
             .unwrap();
@@ -204,6 +254,50 @@ mod tests {
         .await?;
 
         assert!(message.is_ok(), "expected a message from the channel");
+
+        Ok(())
+    }
+
+    #[test]
+    fn admins_can_be_authorised_for_commands() -> Result<()> {
+        let passphase = "secret-passphrase";
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .header("Authorization", format!("Bearer {}", passphase))
+            .uri("http://example.com/reconciliation")
+            .body(Empty::<Bytes>::new())?;
+
+        assert!(is_admin_request_authorised(&request, passphase));
+
+        Ok(())
+    }
+
+    #[test]
+    fn requests_with_invalid_passphrase_are_rejected() -> Result<()> {
+        let passphase = "secret-passphrase";
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .header("Authorization", "Bearer wrong-passphrase")
+            .uri("http://example.com/reconciliation")
+            .body(Empty::<Bytes>::new())?;
+
+        assert!(!is_admin_request_authorised(&request, passphase));
+
+        Ok(())
+    }
+
+    #[test]
+    fn requests_with_no_passphrase_are_rejected() -> Result<()> {
+        let passphase = "secret-passphrase";
+
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri("http://example.com/reconciliation")
+            .body(Empty::<Bytes>::new())?;
+
+        assert!(!is_admin_request_authorised(&request, passphase));
 
         Ok(())
     }

@@ -62,7 +62,7 @@ impl LoadBalancer {
         let reconciliation_path = Arc::from(self.config.load().alb.reconciliation.as_str());
         let message_bus = Arc::clone(&self.message_bus);
 
-        let service_factory = move |_| {
+        let service_factory = move |ctx| {
             let service_registry = Arc::clone(&self.service_registry);
             let rng = Arc::clone(&self.rng);
             let client = self.client.clone();
