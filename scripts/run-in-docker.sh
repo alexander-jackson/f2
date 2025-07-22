@@ -1,7 +1,7 @@
 #!/bin/sh
 
-# Ensure the `mesh` network exists, create it if it doesn't
-docker network inspect mesh >/dev/null 2>&1 || docker network create --driver bridge mesh
+# Ensure the `internal` network exists, create it if it doesn't
+docker network inspect internal >/dev/null 2>&1 || docker network create --driver bridge internal
 
 docker run -it \
 	-p 3000:3000 \
@@ -10,6 +10,6 @@ docker run -it \
 	-v ./forkup.yaml:/app/forkup.yaml \
 	-v /tmp:/tmp \
 	-v /var/run/docker.sock:/var/run/docker.sock \
-	--network mesh \
+	--network internal \
 	--env-file .env \
 	f2:debug -- --config /tmp/config.yaml

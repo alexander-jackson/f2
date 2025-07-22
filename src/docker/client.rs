@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use color_eyre::eyre::{self, Context, Result};
+use color_eyre::eyre::{self, eyre, Context, Result};
 use color_eyre::Section;
 use http::Response;
 use http_body_util::{BodyExt, Full};
@@ -13,16 +13,20 @@ use serde::de::DeserializeOwned;
 
 use crate::common::Environment;
 use crate::docker::models::{
-    CreateContainerOptions, CreateContainerResponse, HostConfig, ImageSummary,
-    InspectContainerResponse, NetworkSettings,
+    CreateContainerOptions, CreateContainerResponse, EndpointConfig, HostConfig, ImageSummary,
+    InspectContainerResponse, Network, NetworkId, NetworkingConfig,
 };
 
 use super::models::ContainerId;
+
+pub const DOCKER_NETWORK_NAME: &str = "internal";
 
 #[async_trait::async_trait]
 pub trait DockerClient {
     async fn fetch_images(&self) -> Result<Vec<ImageSummary>>;
     async fn pull_image(&self, image: &str, tag: &str) -> Result<()>;
+
+    async fn get_network_by_name(&self, name: &str) -> Result<Option<NetworkId>>;
 
     async fn create_container(
         &self,
@@ -30,6 +34,8 @@ pub trait DockerClient {
         environment: &Option<Environment>,
         volumes: &HashMap<String, HashMap<String, String>>,
         docker_volumes: &HashMap<String, String>,
+        hostname: Option<&str>,
+        network: Option<(&NetworkId, &str)>,
     ) -> Result<ContainerId>;
 
     async fn start_container(&self, id: &ContainerId) -> Result<()>;
@@ -102,6 +108,20 @@ impl DockerClient for Client {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
+    async fn get_network_by_name(&self, name: &str) -> Result<Option<NetworkId>> {
+        let uri = self.build_uri("/networks");
+
+        tracing::info!(%name, "Searching for network by name");
+
+        let response = self.client.get(uri).await?;
+        let networks: Vec<Network> = deserialize_body(response).await?;
+
+        let network = networks.iter().find(|n| n.name == name);
+
+        Ok(network.map(|n| NetworkId(n.id.clone())))
+    }
+
     #[tracing::instrument(skip(self, environment))]
     async fn create_container(
         &self,
@@ -109,6 +129,8 @@ impl DockerClient for Client {
         environment: &Option<Environment>,
         volumes: &HashMap<String, HashMap<String, String>>,
         docker_volumes: &HashMap<String, String>,
+        hostname: Option<&str>,
+        network: Option<(&NetworkId, &str)>,
     ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
 
@@ -123,11 +145,28 @@ impl DockerClient for Client {
 
         tracing::info!(?volumes, ?host_config, "creating a container");
 
+        // Setup networking configuration if a network is provided
+        let networking_config = network.map(|(network_id, container_alias)| {
+            let mut endpoints_config = HashMap::new();
+            let aliases = vec![container_alias.to_string()];
+
+            endpoints_config.insert(
+                network_id.0.clone(),
+                EndpointConfig {
+                    aliases: Some(aliases),
+                },
+            );
+
+            NetworkingConfig { endpoints_config }
+        });
+
         let options = CreateContainerOptions {
             image: String::from(image),
             env,
             volumes: &HashMap::new(),
             host_config,
+            networking_config,
+            hostname: hostname.map(|s| s.to_owned()),
         };
 
         let body = serde_json::to_vec(&options)?;
@@ -181,7 +220,14 @@ impl DockerClient for Client {
             .wrap_err_with(|| format!("failed to inspect container {id}"))
             .suggestion("Does the container exist?")?;
 
-        let NetworkSettings { ip_address } = payload.network_settings;
+        let ip_address = payload
+            .network_settings
+            .networks
+            .get(DOCKER_NETWORK_NAME)
+            .map(|network| network.ip_address)
+            .ok_or_else(|| {
+                eyre!("Container {id} is not connected to the {DOCKER_NETWORK_NAME} network")
+            })?;
 
         Ok(ip_address)
     }
