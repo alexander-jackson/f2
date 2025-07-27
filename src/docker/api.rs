@@ -89,6 +89,17 @@ pub async fn create_and_start_container<C: DockerClient>(
             path.to_string_lossy().into_owned(),
             definition.target.clone(),
         );
+
+        // Check the directory exists and is a directory
+        if !directory.exists() || !directory.is_dir() {
+            return Err(eyre!(
+                "volume directory does not exist or is not a directory: {}",
+                directory.display()
+            ));
+        }
+
+        // sleep for a short time to ensure the file system is ready
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 
     let docker_volumes = volumes
