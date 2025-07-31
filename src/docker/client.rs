@@ -32,7 +32,6 @@ pub trait DockerClient {
         &self,
         image: &str,
         environment: &Option<Environment>,
-        volumes: &HashMap<String, HashMap<String, String>>,
         docker_volumes: &HashMap<String, String>,
         hostname: Option<&str>,
         network: Option<(&NetworkId, &str)>,
@@ -127,7 +126,6 @@ impl DockerClient for Client {
         &self,
         image: &str,
         environment: &Option<Environment>,
-        volumes: &HashMap<String, HashMap<String, String>>,
         docker_volumes: &HashMap<String, String>,
         hostname: Option<&str>,
         network: Option<(&NetworkId, &str)>,
@@ -143,7 +141,7 @@ impl DockerClient for Client {
                 .collect(),
         };
 
-        tracing::info!(?volumes, ?host_config, "creating a container");
+        tracing::info!(?host_config, "creating a container");
 
         // Setup networking configuration if a network is provided
         let networking_config = network.map(|(network_id, container_alias)| {

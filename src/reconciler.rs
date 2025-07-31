@@ -247,7 +247,6 @@ pub mod tests {
             &self,
             image: &str,
             _environment: &Option<Environment>,
-            _volumes: &HashMap<String, HashMap<String, String>>,
             _docker_volumes: &HashMap<String, String>,
             _hostname: Option<&str>,
             _network: Option<(&NetworkId, &str)>,
@@ -368,7 +367,6 @@ pub mod tests {
                 &format!("{image}:{tag}"),
                 &None,
                 &HashMap::new(),
-                &HashMap::new(),
                 None,
                 Some((&NetworkId("mesh".to_owned()), "foobar.local")),
             )
@@ -423,7 +421,6 @@ pub mod tests {
             .create_container(
                 &image_and_tag,
                 &None,
-                &HashMap::new(),
                 &HashMap::new(),
                 None,
                 Some((&NetworkId("mesh".to_owned()), "foobar.local")),
