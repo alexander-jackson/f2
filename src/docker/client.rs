@@ -33,7 +33,6 @@ pub trait DockerClient {
         image: &str,
         environment: &Option<Environment>,
         docker_volumes: &HashMap<String, String>,
-        hostname: Option<&str>,
         network: Option<(&NetworkId, &str)>,
     ) -> Result<ContainerId>;
 
@@ -127,7 +126,6 @@ impl DockerClient for Client {
         image: &str,
         environment: &Option<Environment>,
         docker_volumes: &HashMap<String, String>,
-        hostname: Option<&str>,
         network: Option<(&NetworkId, &str)>,
     ) -> Result<ContainerId> {
         let uri = self.build_uri("/containers/create");
@@ -164,7 +162,6 @@ impl DockerClient for Client {
             volumes: &HashMap::new(),
             host_config,
             networking_config,
-            hostname: hostname.map(|s| s.to_owned()),
         };
 
         let body = serde_json::to_vec(&options)?;

@@ -41,7 +41,7 @@ pub async fn create_and_start_container<C: DockerClient>(
     // Create the container
     let name = format!("{image}:{tag}");
 
-    let (container_name, hostname) = generate_container_names(image, tag);
+    let hostname = generate_hostname(image);
     let environment = environment.decrypt(private_key)?;
     let volumes = format_volumes(image, tag, volumes, private_key).await?;
 
@@ -52,7 +52,6 @@ pub async fn create_and_start_container<C: DockerClient>(
             &name,
             &Some(environment),
             &volumes,
-            Some(&container_name),
             Some((&network_id, &hostname)),
         )
         .await?;
@@ -70,7 +69,6 @@ pub async fn create_and_start_container<C: DockerClient>(
         %id,
         %addr,
         %hostname,
-        %container_name,
         network = %DOCKER_NETWORK_NAME,
         "started container"
     );
@@ -92,19 +90,15 @@ async fn fetch_network_id<C: DockerClient>(client: &C) -> Result<NetworkId> {
 }
 
 /// Generates a container name and hostname based on the image and tag.
-fn generate_container_names(image: &str, tag: &str) -> (String, String) {
-    let base_name = image
+fn generate_hostname(image: &str) -> String {
+    image
         .split('/')
         .next_back()
         .unwrap_or(image)
         .split(':')
         .next()
-        .unwrap_or(image);
-
-    let hostname = base_name.to_string();
-    let container_name = format!("{base_name}-{tag}");
-
-    (container_name, hostname)
+        .unwrap_or(image)
+        .to_string()
 }
 
 /// Formats the volumes for a container, resolving their content and writing it to a temporary file.
@@ -255,7 +249,7 @@ fn find_replaceable_segments(content: &str) -> Vec<Segment> {
 
 #[cfg(test)]
 mod tests {
-    use crate::docker::api::{find_replaceable_segments, Segment};
+    use crate::docker::api::{find_replaceable_segments, generate_hostname, Segment};
 
     #[test]
     fn can_find_replaceable_content_correctly() {
@@ -281,5 +275,20 @@ mod tests {
         ];
 
         assert_eq!(segments, expected_segments);
+    }
+
+    #[test]
+    fn can_generate_container_names() {
+        assert_eq!(generate_hostname("nginx"), "nginx");
+    }
+
+    #[test]
+    fn can_generate_container_names_with_slash() {
+        assert_eq!(generate_hostname("company/nginx"), "nginx");
+    }
+
+    #[test]
+    fn can_generate_container_names_with_slash_and_colon() {
+        assert_eq!(generate_hostname("company/nginx:tag"), "nginx");
     }
 }
