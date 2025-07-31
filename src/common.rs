@@ -49,17 +49,6 @@ pub struct Container {
     pub volumes: HashMap<String, VolumeDefinition>,
 }
 
-impl Container {
-    pub fn decrypt_environment(
-        &self,
-        private_key: Option<&RsaPrivateKey>,
-    ) -> Result<Option<Environment>> {
-        let decrypted = self.environment.decrypt(private_key)?;
-
-        Ok(Some(decrypted))
-    }
-}
-
 impl fmt::Debug for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Container")

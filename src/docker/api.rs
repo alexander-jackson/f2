@@ -6,8 +6,11 @@ use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 
 use crate::common::Container;
+use crate::config::VolumeDefinition;
 use crate::docker::client::{DockerClient, DOCKER_NETWORK_NAME};
 use crate::docker::models::ContainerId;
+
+use super::models::NetworkId;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct StartedContainerDetails {
@@ -22,11 +25,62 @@ pub async fn create_and_start_container<C: DockerClient>(
     tag: &str,
     private_key: Option<&RsaPrivateKey>,
 ) -> Result<StartedContainerDetails> {
+    let Container {
+        image,
+        target_port,
+        environment,
+        volumes,
+    } = &container;
+
     // Ensure the image exists locally
     pull_image_if_needed(client, container, tag).await?;
 
-    // Ensure we have a network for all containers to use
-    let network_id = client
+    // Fetch the identifier for the Docker network
+    let network_id = fetch_network_id(client).await?;
+
+    // Create the container
+    let name = format!("{image}:{tag}");
+
+    let (container_name, hostname) = generate_container_names(image, tag);
+    let environment = environment.decrypt(private_key)?;
+    let volumes = format_volumes(image, tag, volumes, private_key).await?;
+
+    tracing::debug!(%name, ?volumes, "creating container with the following details");
+
+    let id = client
+        .create_container(
+            &name,
+            &Some(environment),
+            &volumes,
+            Some(&container_name),
+            Some((&network_id, &hostname)),
+        )
+        .await?;
+
+    client.start_container(&id).await?;
+
+    tracing::info!(%id, %name, %target_port, %hostname, "created and started a container");
+
+    // Get the container itself and the port details
+    let addr = client.get_container_ip(&id).await?;
+
+    tracing::info!(
+        %image,
+        %tag,
+        %id,
+        %addr,
+        %hostname,
+        %container_name,
+        network = %DOCKER_NETWORK_NAME,
+        "started container"
+    );
+
+    Ok(StartedContainerDetails { id, addr })
+}
+
+/// Fetches the Docker network ID by its name, returning an error if it does not exist.
+async fn fetch_network_id<C: DockerClient>(client: &C) -> Result<NetworkId> {
+    client
         .get_network_by_name(DOCKER_NETWORK_NAME)
         .await?
         .ok_or_else(|| {
@@ -34,32 +88,35 @@ pub async fn create_and_start_container<C: DockerClient>(
                 "Docker network '{}' not found. Please create it before starting containers.",
                 DOCKER_NETWORK_NAME
             )
-        })?;
+        })
+}
 
-    // Create the container
-    let name = format!("{}:{tag}", container.image);
-    let target_port = container.target_port;
-
-    // Create a friendly container name/hostname - just use the last part of the image name
-    // For example, "prom/prometheus" becomes "prometheus", "library/redis" becomes "redis"
-    let container_name = container
-        .image
+/// Generates a container name and hostname based on the image and tag.
+fn generate_container_names(image: &str, tag: &str) -> (String, String) {
+    let base_name = image
         .split('/')
         .next_back()
-        .unwrap_or(&container.image)
+        .unwrap_or(image)
         .split(':')
         .next()
-        .unwrap_or(&container.image);
+        .unwrap_or(image);
 
-    let hostname = container_name.to_string();
+    let hostname = base_name.to_string();
+    let container_name = format!("{base_name}-{tag}");
 
-    // Create a unique container name for Docker to avoid conflicts
-    let container_name = format!("{container_name}-{tag}");
+    (container_name, hostname)
+}
 
-    let environment = container.decrypt_environment(private_key)?;
-    let mut volumes = HashMap::new();
+/// Formats the volumes for a container, resolving their content and writing it to a temporary file.
+async fn format_volumes(
+    image: &str,
+    tag: &str,
+    volumes: &HashMap<String, VolumeDefinition>,
+    private_key: Option<&RsaPrivateKey>,
+) -> Result<HashMap<String, String>> {
+    let mut resolved_volumes = HashMap::new();
 
-    for (name, definition) in &container.volumes {
+    for (name, definition) in volumes {
         let span = tracing::info_span!("processing a volume definition", %name, ?definition);
         let _guard = span.enter();
 
@@ -76,7 +133,7 @@ pub async fn create_and_start_container<C: DockerClient>(
             .ok_or_else(|| eyre!("invalid target path: {}", definition.target))?;
 
         // write the content to a temporary file
-        let directory: PathBuf = format!("/tmp/f2/{}/{}/{}", container.image, tag, name).into();
+        let directory: PathBuf = format!("/tmp/f2/{image}/{tag}/{name}").into();
         let path = directory.join(target_filename);
 
         // Ensure the directory exists and write the content
@@ -85,49 +142,13 @@ pub async fn create_and_start_container<C: DockerClient>(
 
         tracing::info!(?directory, ?path, "wrote volume content to temporary file");
 
-        volumes.insert(
+        resolved_volumes.insert(
             path.to_string_lossy().into_owned(),
             definition.target.clone(),
         );
     }
 
-    let docker_volumes = volumes
-        .values()
-        .map(|target_path| (target_path.clone(), HashMap::<String, String>::new()))
-        .collect::<HashMap<_, _>>();
-
-    tracing::debug!(%name, ?volumes, ?docker_volumes, "creating container with the following details");
-
-    let id = client
-        .create_container(
-            &name,
-            &environment,
-            &docker_volumes,
-            &volumes,
-            Some(&container_name),
-            Some((&network_id, &hostname)),
-        )
-        .await?;
-
-    client.start_container(&id).await?;
-
-    tracing::info!(%id, %name, %target_port, %hostname, "created and started a container");
-
-    // Get the container itself and the port details
-    let addr = client.get_container_ip(&id).await?;
-
-    tracing::info!(
-        %container.image,
-        %tag,
-        %id,
-        %addr,
-        %hostname,
-        %container_name,
-        network = %DOCKER_NETWORK_NAME,
-        "started container"
-    );
-
-    Ok(StartedContainerDetails { id, addr })
+    Ok(resolved_volumes)
 }
 
 #[tracing::instrument(skip(client))]

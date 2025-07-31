@@ -1,7 +1,15 @@
 default: build clean run
 
+check:
+	cargo check
+
 lint:
 	cargo clippy -- -D warnings
+
+test:
+	cargo test
+
+validate: check lint test
 
 build:
 	docker build -t f2:debug .
