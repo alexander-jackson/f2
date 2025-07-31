@@ -50,8 +50,6 @@ pub struct CreateContainerOptions<'a> {
     pub host_config: HostConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub networking_config: Option<NetworkingConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hostname: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
