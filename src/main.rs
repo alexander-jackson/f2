@@ -61,7 +61,6 @@ async fn main() -> Result<()> {
     let alb_config = &config.load().alb;
 
     let addr = alb_config.addr;
-    let port = alb_config.port;
     let tls = alb_config.tls.clone();
     let mtls = alb_config.mtls.clone();
 
@@ -90,10 +89,16 @@ async fn main() -> Result<()> {
         Arc::clone(&message_bus),
     );
 
-    let listener = TcpListener::bind(SocketAddrV4::new(addr, port)).await?;
+    let mut listeners = HashMap::new();
+
+    for (protocol, port) in alb_config.ports.iter() {
+        let listener = TcpListener::bind(SocketAddrV4::new(addr, *port)).await?;
+        listeners.insert(protocol.clone(), listener);
+    }
+
     let load_balancer = LoadBalancer::new(service_registry, config, message_bus);
 
-    tokio::try_join!(load_balancer.run(listener, tls, mtls), reconciler.run())?;
+    tokio::try_join!(load_balancer.run(listeners, tls, mtls), reconciler.run())?;
 
     Ok(())
 }

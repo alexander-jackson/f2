@@ -162,7 +162,7 @@ mod tests {
     use rustls::pki_types::pem::PemObject;
     use rustls::pki_types::CertificateDer;
 
-    use crate::config::{AlbConfig, Config, ExternalBytes, MtlsConfig, TlsSecrets};
+    use crate::config::{AlbConfig, Config, ExternalBytes, MtlsConfig, Protocol, TlsSecrets};
     use crate::ipc::MessageBus;
     use crate::load_balancer::tls::{CertificateResolver, DynamicAuthenticationLevelResolver};
 
@@ -176,7 +176,7 @@ mod tests {
 
         let alb = AlbConfig {
             addr: Ipv4Addr::LOCALHOST,
-            port: 5000,
+            ports: HashMap::from([(Protocol::Http, 5000)]),
             reconciliation: String::new(),
             tls: None,
             mtls: Some(MtlsConfig {

@@ -16,7 +16,7 @@ use hyper_util::server::conn::auto::Builder;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use crate::config::{AlbConfig, Config, Service};
+use crate::config::{AlbConfig, Config, Protocol, Service};
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
 use crate::ipc::MessageBus;
@@ -89,7 +89,7 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
     let config = Config {
         alb: AlbConfig {
             addr: Ipv4Addr::LOCALHOST,
-            port: 5000,
+            ports: HashMap::from([(Protocol::Http, resolved_addr.port())]),
             reconciliation: String::from("/reconciliation"),
             tls: None,
             mtls: None,
@@ -105,8 +105,10 @@ async fn spawn_load_balancer(service_registry: ServiceRegistry) -> Result<Socket
         let message_bus = Arc::clone(&message_bus);
         let load_balancer = LoadBalancer::new(service_registry, config, message_bus);
 
+        let listeners = HashMap::from([(Protocol::Http, listener)]);
+
         load_balancer
-            .run(listener, None, None)
+            .run(listeners, None, None)
             .await
             .expect("Failed to run load balancer");
     });
