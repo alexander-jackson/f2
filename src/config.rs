@@ -98,10 +98,17 @@ impl Config {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    Http,
+    Https,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct AlbConfig {
     pub addr: Ipv4Addr,
-    pub port: u16,
+    pub ports: HashMap<Protocol, u16>,
     pub reconciliation: String,
     pub tls: Option<TlsConfig>,
     pub mtls: Option<MtlsConfig>,
@@ -253,7 +260,7 @@ mod tests {
     use std::collections::HashMap;
     use std::net::Ipv4Addr;
 
-    use crate::config::{AlbConfig, Config, Diff, Service};
+    use crate::config::{AlbConfig, Config, Diff, Protocol, Service};
 
     fn some_config() -> Config {
         let mut services = HashMap::new();
@@ -262,7 +269,7 @@ mod tests {
         Config {
             alb: AlbConfig {
                 addr: Ipv4Addr::LOCALHOST,
-                port: 5000,
+                ports: HashMap::from([(Protocol::Http, 5000)]),
                 reconciliation: String::new(),
                 tls: None,
                 mtls: None,
