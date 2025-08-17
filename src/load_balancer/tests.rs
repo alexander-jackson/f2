@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
@@ -16,7 +16,7 @@ use hyper_util::server::conn::auto::Builder;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use crate::config::{AlbConfig, Config, Protocol, Service};
+use crate::config::{AlbConfig, Config, Protocol, Route, Service};
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
 use crate::ipc::MessageBus;
@@ -29,9 +29,11 @@ fn create_service<T: Into<Option<&'static str>>>(
     path_prefix: T,
 ) -> Service {
     Service {
-        port,
-        host: String::from(host),
-        path_prefix: path_prefix.into().map(ToOwned::to_owned),
+        routes: HashSet::from([Route {
+            host: String::from(host),
+            prefix: path_prefix.into().map(ToOwned::to_owned),
+            port,
+        }]),
         ..Default::default()
     }
 }
