@@ -100,6 +100,8 @@ async fn main() -> Result<()> {
 
     tokio::try_join!(load_balancer.run(listeners, tls, mtls), reconciler.run())?;
 
+    tracing::info!("shutting down gracefully, all components have completed their tasks");
+
     Ok(())
 }
 
