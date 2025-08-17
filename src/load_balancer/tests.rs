@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
@@ -16,7 +16,7 @@ use hyper_util::server::conn::auto::Builder;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use crate::config::{AlbConfig, Config, Protocol, Service};
+use crate::config::{AlbConfig, Config, Protocol, Route, Service};
 use crate::docker::api::StartedContainerDetails;
 use crate::docker::models::ContainerId;
 use crate::ipc::MessageBus;
@@ -29,9 +29,11 @@ fn create_service<T: Into<Option<&'static str>>>(
     path_prefix: T,
 ) -> Service {
     Service {
-        port,
-        host: String::from(host),
-        path_prefix: path_prefix.into().map(ToOwned::to_owned),
+        routes: HashSet::from([Route {
+            host: String::from(host),
+            prefix: path_prefix.into().map(ToOwned::to_owned),
+            port,
+        }]),
         ..Default::default()
     }
 }
@@ -248,6 +250,89 @@ async fn can_proxy_downstream_based_on_path_prefixes() -> Result<()> {
         .body(Full::default())?;
 
     assert_eq!(get_response_body(&client, request).await?, backend_reply);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn can_proxy_to_different_ports_based_on_route_configuration() -> Result<()> {
+    let internal_reply = "Hello from the internal service";
+    let external_reply = "Hello from the external service";
+
+    let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+    let internal_listener = TcpListener::bind(&addr).await?;
+    let internal_addr = internal_listener.local_addr()?;
+
+    let external_listener = TcpListener::bind(&addr).await?;
+    let external_addr = external_listener.local_addr()?;
+
+    tokio::spawn(async move {
+        loop {
+            // handle a connection on the internal service, then on the external service
+            let (stream, _) = internal_listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+
+            tokio::spawn(async move {
+                Builder::new(TokioExecutor::new())
+                    .serve_connection(io, service_fn(move |_| handler(internal_reply)))
+                    .await
+                    .unwrap();
+            });
+
+            let (stream, _) = external_listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+
+            tokio::spawn(async move {
+                Builder::new(TokioExecutor::new())
+                    .serve_connection(io, service_fn(move |_| handler(external_reply)))
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+
+    // 2 services on the same host, different paths
+    let name = "opentracker";
+    let internal_host = "internal.opentracker.app";
+    let external_host = "external.opentracker.app";
+    let mut service_registry = ServiceRegistry::new();
+
+    let service = Service {
+        routes: HashSet::from([
+            Route {
+                host: String::from(internal_host),
+                prefix: None,
+                port: internal_addr.port(),
+            },
+            Route {
+                host: String::from(external_host),
+                prefix: None,
+                port: external_addr.port(),
+            },
+        ]),
+        ..Default::default()
+    };
+
+    service_registry.define(name, service);
+
+    add_container(&mut service_registry, name);
+
+    let addr = spawn_load_balancer(service_registry).await?;
+    let client = Client::builder(TokioExecutor::new()).build_http();
+
+    let request = Request::builder()
+        .uri(format!("http://{}/", addr))
+        .header(HOST, internal_host)
+        .body(Full::default())?;
+
+    assert_eq!(get_response_body(&client, request).await?, internal_reply);
+
+    let request = Request::builder()
+        .uri(format!("http://{}/", addr))
+        .header(HOST, external_host)
+        .body(Full::default())?;
+
+    assert_eq!(get_response_body(&client, request).await?, external_reply);
 
     Ok(())
 }

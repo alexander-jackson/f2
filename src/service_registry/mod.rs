@@ -63,17 +63,24 @@ impl ServiceRegistry {
         host: &str,
         path: &str,
     ) -> Option<(&IndexSet<StartedContainerDetails>, u16)> {
+        tracing::debug!(host, path, "finding downstream containers");
+
         self.definitions
             .iter()
-            .filter(|entry| entry.1.host == host)
-            .min_by_key(|entry| {
-                let calculator = PathMatchCalculator::new(path, entry.1.path_prefix.as_deref());
-
-                calculator.compute_match_length()
+            .filter_map(|(name, service)| {
+                service
+                    .routes
+                    .iter()
+                    .find(|route| route.host == host)
+                    .map(|route| {
+                        let calculator = PathMatchCalculator::new(path, route.prefix.as_deref());
+                        (name, calculator.compute_match_length(), route.port)
+                    })
             })
-            .and_then(|entry| {
-                self.get_running_containers(entry.0)
-                    .map(|downstreams| (downstreams, entry.1.port))
+            .min_by_key(|(_, match_length, _)| *match_length)
+            .and_then(|(name, _, port)| {
+                self.get_running_containers(name)
+                    .map(|downstreams| (downstreams, port))
             })
     }
 }
@@ -83,7 +90,7 @@ mod tests {
     use std::collections::HashSet;
     use std::net::Ipv4Addr;
 
-    use crate::config::Service;
+    use crate::config::{Route, Service};
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::models::ContainerId;
     use crate::service_registry::ServiceRegistry;
@@ -160,8 +167,11 @@ mod tests {
         path_prefix: Option<String>,
     ) {
         let service = Service {
-            host: String::from(host),
-            path_prefix,
+            routes: HashSet::from([Route {
+                host: host.to_string(),
+                prefix: path_prefix.clone(),
+                ..Default::default()
+            }]),
             ..Default::default()
         };
 
@@ -284,5 +294,43 @@ mod tests {
         registry.remove_all_containers(name);
 
         assert!(registry.get_running_containers(name).is_none());
+    }
+
+    #[test]
+    fn can_find_downstream_by_multiple_hosts_if_configured() {
+        let mut registry = ServiceRegistry::new();
+
+        let name = "backend";
+        let path = "/api/v1/accounts";
+        let external_host = "opentracker.app";
+        let internal_host = "opentracker.internal";
+
+        let service = Service {
+            routes: HashSet::from([
+                Route {
+                    host: external_host.to_string(),
+                    ..Default::default()
+                },
+                Route {
+                    host: internal_host.to_string(),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        };
+
+        registry.define(name, service);
+        let container_id = add_container(&mut registry, name);
+
+        let internal_downstreams = registry.find_downstreams(internal_host, path);
+        let external_downstreams = registry.find_downstreams(external_host, path);
+
+        assert_eq!(internal_downstreams, external_downstreams);
+
+        assert!(internal_downstreams.is_some_and(|(containers, _)| {
+            containers
+                .iter()
+                .any(|container| container.id == container_id)
+        }));
     }
 }

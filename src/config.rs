@@ -224,14 +224,20 @@ impl Default for ShutdownMode {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash, Deserialize)]
+pub struct Route {
+    pub host: String,
+    pub prefix: Option<String>,
+    pub port: u16,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
 pub struct Service {
     pub image: String,
     pub tag: String,
-    pub port: u16,
     pub replicas: ReplicaCount,
-    pub host: String,
-    pub path_prefix: Option<String>,
+    #[serde(default)]
+    pub routes: HashSet<Route>,
     #[serde(default)]
     pub environment: HashMap<String, String>,
     #[serde(default)]

@@ -44,7 +44,6 @@ pub struct Environment {
 #[derive(Clone)]
 pub struct Container {
     pub image: String,
-    pub target_port: u16,
     pub environment: EncryptedEnvironment,
     pub volumes: HashMap<String, VolumeDefinition>,
 }
@@ -53,7 +52,7 @@ impl fmt::Debug for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Container")
             .field("image", &self.image)
-            .field("target_port", &self.target_port)
+            .field("volumes", &self.volumes)
             .finish()
     }
 }
@@ -62,7 +61,6 @@ impl From<&Service> for Container {
     fn from(service: &Service) -> Self {
         Self {
             image: service.image.clone(),
-            target_port: service.port,
             environment: EncryptedEnvironment {
                 variables: service.environment.clone(),
             },

@@ -27,7 +27,6 @@ pub async fn create_and_start_container<C: DockerClient>(
 ) -> Result<StartedContainerDetails> {
     let Container {
         image,
-        target_port,
         environment,
         volumes,
     } = &container;
@@ -58,7 +57,7 @@ pub async fn create_and_start_container<C: DockerClient>(
 
     client.start_container(&id).await?;
 
-    tracing::info!(%id, %name, %target_port, %hostname, "created and started a container");
+    tracing::info!(%id, %name, %hostname, "created and started a container");
 
     // Get the container itself and the port details
     let addr = client.get_container_ip(&id).await?;
