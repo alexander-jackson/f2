@@ -148,11 +148,15 @@ impl LoadBalancer {
             }
         }
 
+        tracing::info!("waiting for all servers to complete");
+
         servers
             .for_each(|result| async move {
                 tracing::info!("server completed: {:?}", result);
             })
             .await;
+
+        tracing::info!("all servers have completed");
 
         Ok(())
     }
