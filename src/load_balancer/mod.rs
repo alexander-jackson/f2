@@ -4,10 +4,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use async_trait::async_trait;
 use color_eyre::eyre::Result;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use http::{Request, Response};
 use http_body_util::combinators::BoxBody;
 use hyper::body::{Bytes, Incoming};
@@ -24,6 +21,7 @@ use rustls::RootCertStore;
 use tls::DynamicAuthenticationLevelResolver;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinSet;
 
 use crate::config::{Config, MtlsConfig, Protocol, TlsConfig};
 use crate::ipc::MessageBus;
@@ -97,14 +95,14 @@ impl LoadBalancer {
             })
         };
 
-        let servers = FuturesUnordered::new();
+        let mut tasks = JoinSet::new();
 
         if let Some(listener) = listeners.remove(&Protocol::Http) {
             let server = HttpServer::new(service_factory.clone());
 
             tracing::info!("starting http server on {}", listener.local_addr()?);
 
-            servers.push(server.run(listener));
+            tasks.spawn(server.run(listener));
         }
 
         if let Some(listener) = listeners.remove(&Protocol::Https) {
@@ -144,27 +142,18 @@ impl LoadBalancer {
 
                 tracing::info!("starting https server on {}", listener.local_addr()?);
 
-                servers.push(server.run(listener));
+                tasks.spawn(server.run(listener));
             }
         }
 
         tracing::info!("waiting for all servers to complete");
 
-        servers
-            .for_each(|result| async move {
-                tracing::info!("server completed: {:?}", result);
-            })
-            .await;
+        tasks.join_all().await;
 
         tracing::info!("all servers have completed");
 
         Ok(())
     }
-}
-
-#[async_trait]
-trait ConnectionHandler: Send + Sync {
-    async fn run(self, listener: TcpListener);
 }
 
 pub struct HttpServer<F> {
@@ -187,6 +176,16 @@ where
         }
     }
 
+    async fn run(self, mut listener: TcpListener) {
+        loop {
+            if let Err(e) = self.try_handle_connection(&mut listener).await {
+                tracing::warn!(%e, "failed to handle connection");
+            } else {
+                tracing::trace!("handled a connection from a client");
+            }
+        }
+    }
+
     pub async fn try_handle_connection(
         &self,
         listener: &mut TcpListener,
@@ -206,45 +205,6 @@ where
         });
 
         Ok(())
-    }
-}
-
-#[async_trait]
-impl<F, S> ConnectionHandler for HttpServer<F>
-where
-    F: Fn(ConnectionContext) -> S + Send + Sync + 'static,
-    S: Service<Request<Incoming>, Response = Response<BoxBody<Bytes, hyper::Error>>>
-        + Send
-        + 'static,
-    S::Future: 'static,
-    <S as Service<Request<Incoming>>>::Future: Send,
-    <S as Service<Request<Incoming>>>::Error: Into<Box<dyn Error + Send + Sync>>,
-{
-    async fn run(self, mut listener: TcpListener) {
-        loop {
-            if let Err(e) = self.try_handle_connection(&mut listener).await {
-                tracing::warn!(%e, "failed to handle connection");
-            } else {
-                tracing::trace!("handled a connection from a client");
-            }
-        }
-    }
-}
-
-// implement ConnectionHandler for Server
-#[async_trait]
-impl<F, S> ConnectionHandler for Server<F>
-where
-    F: Fn(ConnectionContext) -> S + Send + Sync + 'static,
-    S: Service<Request<Incoming>, Response = Response<BoxBody<Bytes, hyper::Error>>>
-        + Send
-        + 'static,
-    S::Future: 'static,
-    <S as Service<Request<Incoming>>>::Future: Send,
-    <S as Service<Request<Incoming>>>::Error: Into<Box<dyn Error + Send + Sync>>,
-{
-    async fn run(self, listener: TcpListener) {
-        self.run(listener).await;
     }
 }
 
