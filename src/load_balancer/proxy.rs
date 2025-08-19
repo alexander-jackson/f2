@@ -2,7 +2,8 @@ use std::net::SocketAddrV4;
 use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Result};
-use http::Method;
+use http::header::HOST;
+use http::{Method, Version};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Body, Bytes};
@@ -23,7 +24,7 @@ pub async fn handle_request<B>(
     client: Client<HttpConnector, B>,
     reconciliation_path: Arc<str>,
     message_bus: Arc<MessageBus>,
-    mut req: Request<B>,
+    req: Request<B>,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>>
 where
     B: Body + Send + Unpin + 'static,
@@ -55,11 +56,7 @@ where
         }
     }
 
-    let host = req
-        .headers()
-        .get(hyper::header::HOST)
-        .ok_or_else(|| eyre!("failed to get `host` header for request to {uri}"))?
-        .to_str()?;
+    let host = extract_host(&req)?;
 
     // Filter based on the host, then do path matching for longest length
     let read_lock = service_registry.read().await;
@@ -83,14 +80,47 @@ where
 
     drop(read_lock);
 
+    let addr = SocketAddrV4::new(downstream, port);
     let path_and_query = uri.path_and_query().map_or("/", PathAndQuery::as_str);
 
-    tracing::debug!(%downstream, %path_and_query, "proxing request to a downstream server");
+    let target_uri = format!("http://{addr}{path_and_query}").parse()?;
 
-    let addr = SocketAddrV4::new(downstream, port);
-    *req.uri_mut() = format!("http://{addr}{path_and_query}").parse()?;
+    let mut mapped = map_request(req)?;
+    *mapped.uri_mut() = target_uri;
 
-    Ok(client.request(req).await?.map(BoxBody::new))
+    Ok(client.request(mapped).await?.map(BoxBody::new))
+}
+
+fn extract_host<B>(req: &Request<B>) -> Result<&str> {
+    let uri = req.uri();
+
+    let host = match req.version() {
+        Version::HTTP_11 => req.headers().get(HOST).and_then(|h| h.to_str().ok()),
+        Version::HTTP_2 => req.uri().authority().map(|a| a.as_str()),
+        _ => None,
+    }
+    .ok_or_else(|| eyre!("failed to get host information for request to {uri}"))?;
+
+    Ok(host)
+}
+
+fn map_request<B>(original: Request<B>) -> Result<Request<B>> {
+    let uri = original.uri();
+
+    let mut request = Request::builder()
+        .method(original.method())
+        .uri(uri)
+        .version(Version::HTTP_11);
+
+    for (name, value) in original.headers() {
+        if !name.as_str().starts_with(':') && name != "connection" {
+            request = request.header(name, value);
+        }
+    }
+
+    let request = request.body(original.into_body())?;
+
+    Ok(request)
 }
 
 fn empty() -> BoxBody<Bytes, hyper::Error> {
@@ -105,7 +135,8 @@ mod tests {
     use std::time::Duration;
 
     use color_eyre::eyre::Result;
-    use http::Request;
+    use http::header::ACCEPT;
+    use http::{HeaderValue, Method, Request, Uri, Version};
     use http_body_util::Empty;
     use hyper::body::Bytes;
     use hyper_util::client::legacy::connect::HttpConnector;
@@ -116,7 +147,7 @@ mod tests {
     use tokio::sync::{Mutex, RwLock};
 
     use crate::ipc::MessageBus;
-    use crate::load_balancer::proxy::handle_request;
+    use crate::load_balancer::proxy::{extract_host, handle_request, map_request};
     use crate::service_registry::ServiceRegistry;
 
     /// Gets all the dependencies required for calling `handle_request`.
@@ -204,6 +235,63 @@ mod tests {
         .await?;
 
         assert!(message.is_ok(), "expected a message from the channel");
+
+        Ok(())
+    }
+
+    #[test]
+    fn can_extract_hosts_for_http_11() -> Result<()> {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://example.com/path?query=1")
+            .version(Version::HTTP_11)
+            .header("Host", "example.com")
+            .body(Empty::<Bytes>::new())?;
+
+        let host = extract_host(&req)?;
+
+        assert_eq!(host, "example.com");
+
+        Ok(())
+    }
+
+    #[test]
+    fn can_extract_hosts_for_http_2() -> Result<()> {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://example.com/path?query=1")
+            .version(Version::HTTP_2)
+            .body(Empty::<Bytes>::new())?;
+
+        let host = extract_host(&req)?;
+
+        assert_eq!(host, "example.com");
+
+        Ok(())
+    }
+
+    #[test]
+    fn can_map_requests_from_http2_to_http11() -> Result<()> {
+        let method = Method::GET;
+        let uri: Uri = "http://example.com/path?query=1".parse()?;
+        let version = Version::HTTP_2;
+
+        let header_name = ACCEPT;
+        let header_value = HeaderValue::from_static("application/json");
+
+        let req = Request::builder()
+            .method(&method)
+            .uri(&uri)
+            .version(version)
+            .header(&header_name, &header_value)
+            .body(Empty::<Bytes>::new())?;
+
+        let mapped = map_request(req)?;
+
+        assert_eq!(mapped.method(), method);
+        assert_eq!(mapped.uri(), &uri);
+        assert_eq!(mapped.version(), Version::HTTP_11);
+        assert_eq!(mapped.headers().get(header_name), Some(&header_value));
 
         Ok(())
     }
