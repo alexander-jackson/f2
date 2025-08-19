@@ -212,7 +212,7 @@ pub mod tests {
     use tokio::sync::RwLock;
 
     use crate::common::Environment;
-    use crate::config::{AlbConfig, Config, Diff, ExternalBytes, Protocol, ReplicaCount, Service};
+    use crate::config::{AlbConfig, Config, Diff, ExternalBytes, ReplicaCount, Scheme, Service};
     use crate::docker::api::StartedContainerDetails;
     use crate::docker::client::DockerClient;
     use crate::docker::models::{ContainerId, ImageSummary, NetworkId};
@@ -293,7 +293,7 @@ pub mod tests {
         let config = Config {
             alb: AlbConfig {
                 addr: Ipv4Addr::LOCALHOST,
-                ports: HashMap::from([(Protocol::Http, 5000)]),
+                ports: HashMap::from([(Scheme::Http, 5000)]),
                 reconciliation: String::new(),
                 tls: None,
                 mtls: None,

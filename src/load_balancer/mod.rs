@@ -23,7 +23,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinSet;
 
-use crate::config::{Config, MtlsConfig, Protocol, TlsConfig};
+use crate::config::{Config, MtlsConfig, Scheme, TlsConfig};
 use crate::ipc::MessageBus;
 use crate::load_balancer::tls::CertificateResolver;
 use crate::service_registry::ServiceRegistry;
@@ -60,7 +60,7 @@ impl LoadBalancer {
 
     pub async fn run(
         self,
-        mut listeners: HashMap<Protocol, TcpListener>,
+        mut listeners: HashMap<Scheme, TcpListener>,
         tls: Option<TlsConfig>,
         mtls: Option<MtlsConfig>,
     ) -> Result<()> {
@@ -97,7 +97,7 @@ impl LoadBalancer {
 
         let mut tasks = JoinSet::new();
 
-        if let Some(listener) = listeners.remove(&Protocol::Http) {
+        if let Some(listener) = listeners.remove(&Scheme::Http) {
             let server = HttpServer::new(service_factory.clone());
 
             tracing::info!("starting http server on {}", listener.local_addr()?);
@@ -105,7 +105,7 @@ impl LoadBalancer {
             tasks.spawn(server.run(listener));
         }
 
-        if let Some(listener) = listeners.remove(&Protocol::Https) {
+        if let Some(listener) = listeners.remove(&Scheme::Https) {
             if let Some(tls) = tls {
                 let client_cert_verifier: Arc<dyn ClientCertVerifier> = match &mtls {
                     Some(config) => {
