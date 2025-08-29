@@ -6,7 +6,7 @@ use color_eyre::eyre::{eyre, Context, Result};
 use rsa::RsaPrivateKey;
 
 use crate::common::Container;
-use crate::config::VolumeDefinition;
+use crate::config::{ExternalBytes, VolumeDefinition};
 use crate::docker::client::{DockerClient, DOCKER_NETWORK_NAME};
 use crate::docker::models::ContainerId;
 
@@ -113,27 +113,35 @@ async fn format_volumes(
         let span = tracing::info_span!("processing a volume definition", %name, ?definition);
         let _guard = span.enter();
 
-        let raw_content = definition.source.resolve().await?;
-        let content = decrypt_content(&raw_content, private_key)
-            .wrap_err_with(|| format!("failed to decrypt content for volume '{name}'"))?;
+        // if the content is from S3, we need to write it to a temporary file
+        let path = match &definition.source {
+            ExternalBytes::S3 { .. } => {
+                let raw_content = definition.source.resolve().await?;
+                let content = decrypt_content(&raw_content, private_key)
+                    .wrap_err_with(|| format!("failed to decrypt content for volume '{name}'"))?;
 
-        tracing::info!(bytes = %content.len(), "decrypted content for volume");
+                tracing::info!(bytes = %content.len(), "decrypted content for volume");
 
-        // Ensure we're handling paths correctly regardless of trailing slashes
-        let clean_target = definition.target.trim_end_matches('/');
-        let target_filename = Path::new(clean_target)
-            .file_name()
-            .ok_or_else(|| eyre!("invalid target path: {}", definition.target))?;
+                // Ensure we're handling paths correctly regardless of trailing slashes
+                let clean_target = definition.target.trim_end_matches('/');
+                let target_filename = Path::new(clean_target)
+                    .file_name()
+                    .ok_or_else(|| eyre!("invalid target path: {}", definition.target))?;
 
-        // write the content to a temporary file
-        let directory: PathBuf = format!("/tmp/f2/{image}/{tag}/{name}").into();
-        let path = directory.join(target_filename);
+                // write the content to a temporary file
+                let directory: PathBuf = format!("/tmp/f2/{image}/{tag}/{name}").into();
+                let path = directory.join(target_filename);
 
-        // Ensure the directory exists and write the content
-        std::fs::create_dir_all(&directory)?;
-        std::fs::write(&path, content)?;
+                // Ensure the directory exists and write the content
+                std::fs::create_dir_all(&directory)?;
+                std::fs::write(&path, content)?;
 
-        tracing::info!(?directory, ?path, "wrote volume content to temporary file");
+                tracing::info!(?directory, ?path, "wrote volume content to temporary file");
+
+                path
+            }
+            ExternalBytes::Filesystem { path } => PathBuf::from(path),
+        };
 
         resolved_volumes.insert(
             path.to_string_lossy().into_owned(),
@@ -252,8 +260,7 @@ mod tests {
 
     #[test]
     fn can_find_replaceable_content_correctly() {
-        let content =
-            "This is a test with {{ secret1 }} and {{ secret2 }} and some {{ secret3 }} at the end.";
+        let content = "This is a test with {{ secret1 }} and {{ secret2 }} and some {{ secret3 }} at the end.";
 
         let segments = find_replaceable_segments(content);
 
