@@ -147,6 +147,11 @@ impl<C: DockerClient> Reconciler<C> {
             }
         }
 
+        // remove any old containers and images
+        self.docker_client
+            .prune_unused_containers_and_images()
+            .await?;
+
         Ok(())
     }
 
@@ -177,6 +182,11 @@ impl<C: DockerClient> Reconciler<C> {
                 self.docker_client.remove_container(&details.id).await?;
             }
         }
+
+        // remove any old containers and images
+        self.docker_client
+            .prune_unused_containers_and_images()
+            .await?;
 
         Ok(())
     }
@@ -283,6 +293,10 @@ pub mod tests {
 
         async fn get_network_by_name(&self, _name: &str) -> Result<Option<NetworkId>> {
             Ok(Some(NetworkId("mesh".to_owned())))
+        }
+
+        async fn prune_unused_containers_and_images(&self) -> Result<()> {
+            Ok(())
         }
     }
 
