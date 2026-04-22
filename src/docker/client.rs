@@ -13,9 +13,8 @@ use serde::de::DeserializeOwned;
 
 use crate::common::Environment;
 use crate::docker::models::{
-    ContainerPruneResponse, CreateContainerOptions, CreateContainerResponse, EndpointConfig,
-    HostConfig, ImagePruneResponse, ImageSummary, InspectContainerResponse, Network, NetworkId,
-    NetworkingConfig,
+    CreateContainerOptions, CreateContainerResponse, EndpointConfig, HostConfig, ImageSummary,
+    InspectContainerResponse, Network, NetworkId, NetworkingConfig,
 };
 
 use super::models::ContainerId;
@@ -44,8 +43,6 @@ pub trait DockerClient {
     async fn stop_container(&self, id: &ContainerId) -> Result<()>;
 
     async fn remove_container(&self, id: &ContainerId) -> Result<()>;
-
-    async fn prune_unused_containers_and_images(&self) -> Result<()>;
 }
 
 pub struct Client {
@@ -258,43 +255,6 @@ impl DockerClient for Client {
             .body(Full::default())?;
 
         self.client.request(request).await?;
-
-        Ok(())
-    }
-
-    async fn prune_unused_containers_and_images(&self) -> Result<()> {
-        let containers_uri = self.build_uri("/containers/prune");
-        let images_uri = self.build_uri("/images/prune");
-
-        tracing::info!("pruning unused containers");
-
-        let request = Request::builder()
-            .uri(containers_uri)
-            .method(Method::POST)
-            .body(Full::default())?;
-
-        let response = self.client.request(request).await?;
-        let body: ContainerPruneResponse = deserialize_body(response).await?;
-
-        tracing::info!(
-            containers_deleted = ?body.containers_deleted,
-            space_reclaimed = body.space_reclaimed,
-            "pruned unused containers"
-        );
-
-        let request = Request::builder()
-            .uri(images_uri)
-            .method(Method::POST)
-            .body(Full::default())?;
-
-        let response = self.client.request(request).await?;
-        let body: ImagePruneResponse = deserialize_body(response).await?;
-
-        tracing::info!(
-            images_deleted = ?body.images_deleted,
-            space_reclaimed = body.space_reclaimed,
-            "pruned unused images"
-        );
 
         Ok(())
     }

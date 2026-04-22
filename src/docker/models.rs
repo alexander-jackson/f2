@@ -102,25 +102,3 @@ pub struct Network {
     pub id: String,
     pub name: String,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct ImagePruneResponse {
-    pub images_deleted: Option<Vec<ImageDeleted>>,
-    pub space_reclaimed: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-#[allow(dead_code)]
-pub struct ImageDeleted {
-    pub deleted: String,
-    pub untagged: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct ContainerPruneResponse {
-    pub containers_deleted: Vec<String>,
-    pub space_reclaimed: u64,
-}
