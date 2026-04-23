@@ -22,9 +22,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: amd64
+          - platform: linux/amd64
+            slug: amd64
             runner: ubuntu-latest
-          - platform: arm64
+          - platform: linux/arm64/v8
+            slug: arm64
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +38,8 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           push: true
-          platforms: linux/${{ matrix.platform }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/f2:${{ needs.prepare.outputs.tag }}-${{ matrix.platform }}
+          platforms: ${{ matrix.platform }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/f2:${{ needs.prepare.outputs.tag }}-${{ matrix.slug }}
 
   manifest:
     name: Create Multi-Arch Manifest
