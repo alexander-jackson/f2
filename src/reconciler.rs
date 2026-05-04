@@ -62,6 +62,8 @@ impl<C: DockerClient> Reconciler<C> {
             for event in diff {
                 self.handle_diff(event).await?;
             }
+
+            self.docker_client.prune_images().await?;
         }
 
         Ok(())
@@ -140,6 +142,7 @@ impl<C: DockerClient> Reconciler<C> {
             match old_definition.shutdown_mode {
                 ShutdownMode::Graceful => {
                     self.docker_client.stop_container(&details.id).await?;
+                    self.docker_client.remove_container(&details.id).await?;
                 }
                 ShutdownMode::Forceful => {
                     self.docker_client.remove_container(&details.id).await?;
@@ -202,7 +205,7 @@ impl<C: DockerClient> Reconciler<C> {
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -283,6 +286,15 @@ pub mod tests {
 
         async fn get_network_by_name(&self, _name: &str) -> Result<Option<NetworkId>> {
             Ok(Some(NetworkId("mesh".to_owned())))
+        }
+
+        async fn prune_images(&self) -> Result<()> {
+            let mut lock = self.state.write().await;
+            let in_use: HashSet<String> =
+                lock.containers.iter().map(|(_, img)| img.clone()).collect();
+            lock.images
+                .retain(|img| img.repo_tags.iter().any(|t| in_use.contains(t)));
+            Ok(())
         }
     }
 
@@ -453,6 +465,86 @@ pub mod tests {
         // Neither of these containers are our original one
         let original_container = containers.iter().find(|c| c.0 == id);
         assert!(original_container.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prunes_unused_images_after_tag_change() -> Result<()> {
+        let mut registry = ServiceRegistry::new();
+
+        let service = "foobar";
+        let image = "myapp";
+        let old_tag = "v1";
+        let new_tag = "v2";
+
+        let docker_client = FakeDockerClient::default();
+
+        // Pre-seed the old image on the host
+        {
+            let mut lock = docker_client.state.write().await;
+            lock.images.push(ImageSummary {
+                repo_tags: vec![format!("{image}:{old_tag}")],
+            });
+        }
+
+        // Create a running container for v1
+        let id = docker_client
+            .create_container(
+                &format!("{image}:{old_tag}"),
+                &None,
+                &HashMap::new(),
+                Some((&NetworkId("mesh".to_owned()), "foobar.local")),
+            )
+            .await?;
+
+        let old_definition = Service {
+            image: image.to_owned(),
+            tag: old_tag.to_owned(),
+            ..Default::default()
+        };
+        let new_definition = Service {
+            image: image.to_owned(),
+            tag: new_tag.to_owned(),
+            ..Default::default()
+        };
+
+        registry.define(service, old_definition.clone());
+        registry.add_container(
+            service,
+            StartedContainerDetails {
+                id,
+                addr: Ipv4Addr::LOCALHOST,
+            },
+        );
+
+        let reconciler = create_reconciler(registry, docker_client.clone());
+
+        reconciler
+            .handle_diff(Diff::Alteration {
+                name: service.to_owned(),
+                old_definition,
+                new_definition,
+            })
+            .await?;
+
+        docker_client.prune_images().await?;
+
+        let lock = docker_client.state.read().await;
+
+        // Old image should be gone
+        let old_image_present = lock
+            .images
+            .iter()
+            .any(|img| img.repo_tags.contains(&format!("{image}:{old_tag}")));
+        assert!(!old_image_present, "old image should have been pruned");
+
+        // New container should exist
+        let new_container_present = lock
+            .containers
+            .iter()
+            .any(|(_, img)| img == &format!("{image}:{new_tag}"));
+        assert!(new_container_present, "new container should be running");
 
         Ok(())
     }
