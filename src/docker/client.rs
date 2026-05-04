@@ -43,6 +43,8 @@ pub trait DockerClient {
     async fn stop_container(&self, id: &ContainerId) -> Result<()>;
 
     async fn remove_container(&self, id: &ContainerId) -> Result<()>;
+
+    async fn prune_images(&self) -> Result<()>;
 }
 
 pub struct Client {
@@ -252,6 +254,23 @@ impl DockerClient for Client {
         let request = Request::builder()
             .uri(uri)
             .method(Method::DELETE)
+            .body(Full::default())?;
+
+        self.client.request(request).await?;
+
+        Ok(())
+    }
+
+    async fn prune_images(&self) -> Result<()> {
+        // {"dangling":["false"]} removes all unused images, not just dangling ones
+        let filter = urlencoding::encode(r#"{"dangling":["false"]}"#);
+        let uri = self.build_uri(&format!("/images/prune?filters={filter}"));
+
+        tracing::info!("pruning unused Docker images");
+
+        let request = Request::builder()
+            .uri(uri)
+            .method(Method::POST)
             .body(Full::default())?;
 
         self.client.request(request).await?;

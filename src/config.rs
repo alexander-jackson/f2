@@ -211,17 +211,12 @@ impl Deref for ReplicaCount {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShutdownMode {
     Graceful,
+    #[default]
     Forceful,
-}
-
-impl Default for ShutdownMode {
-    fn default() -> Self {
-        Self::Forceful
-    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash, Deserialize)]
