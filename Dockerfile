@@ -9,22 +9,16 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
-# Install anything we need for `musl` builds and set the environment variables
-RUN apk add --no-cache musl build-base clang llvm18
-RUN rustup target add x86_64-unknown-linux-musl
-
-ENV CC_x86_64_unknown_linux_musl=clang
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
-
 # Build the dependencies themselves
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build the binary
 COPY . .
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin f2
+RUN cargo build --release --bin f2
 
 # Copy over to the minimal image
 FROM gcr.io/distroless/static
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/f2 .
-ENTRYPOINT ["./f2"]
+WORKDIR /app
+COPY --from=builder /app/target/release/f2 /app/f2
+ENTRYPOINT ["/app/f2"]

@@ -1,7 +1,11 @@
 /target
+/servers
+/scripts
 Dockerfile
 Justfile
 
 *.sh
 *.yaml
+*.conf
 .env
+.dockerignore
