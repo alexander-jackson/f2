@@ -74,13 +74,14 @@ mod tests {
     use std::collections::HashMap;
 
     use color_eyre::eyre::{eyre, Result};
+    use rand::rngs::ThreadRng;
     use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 
     use super::EncryptedEnvironment;
 
     fn generate_keys() -> Result<(RsaPublicKey, RsaPrivateKey)> {
-        let mut rng = rand::thread_rng();
-        let bits = 256;
+        let mut rng: ThreadRng = rand::rng();
+        let bits = 1024;
 
         let private_key = RsaPrivateKey::new(&mut rng, bits)?;
         let public_key = RsaPublicKey::from(&private_key);
@@ -91,7 +92,7 @@ mod tests {
     fn encrypt_and_encode_value(value: &str, public_key: &RsaPublicKey) -> Result<String> {
         use base64::{engine::general_purpose, Engine as _};
 
-        let mut rng = rand::thread_rng();
+        let mut rng: ThreadRng = rand::rng();
 
         let encrypted = public_key.encrypt(&mut rng, Pkcs1v15Encrypt, value.as_bytes())?;
 

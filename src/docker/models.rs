@@ -25,7 +25,7 @@ impl fmt::Display for NetworkId {
 #[cfg(test)]
 impl ContainerId {
     pub fn random() -> Self {
-        use rand::RngCore;
+        use rand::Rng;
 
         let mut rng = rand::rngs::ThreadRng::default();
         let mut buf: [u8; 6] = [0; 6];

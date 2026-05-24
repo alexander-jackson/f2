@@ -14,7 +14,7 @@ use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use mutual_tls::{ConnectionContext, Server, ServerConfiguration};
-use rand::prelude::{SeedableRng, SmallRng};
+use rand::prelude::SmallRng;
 use rustls::server::danger::ClientCertVerifier;
 use rustls::server::{NoClientAuth, WebPkiClientVerifier};
 use rustls::RootCertStore;
@@ -47,7 +47,7 @@ impl LoadBalancer {
         message_bus: Arc<MessageBus>,
     ) -> Self {
         let client = Client::builder(TokioExecutor::new()).build_http();
-        let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
+        let rng = Arc::new(Mutex::new(rand::make_rng()));
 
         Self {
             service_registry,

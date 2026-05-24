@@ -12,7 +12,7 @@ use hyper::{Request, Response};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use rand::prelude::SmallRng;
-use rand::RngCore;
+use rand::Rng;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::ipc::MessageBus;
@@ -143,7 +143,6 @@ mod tests {
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
     use rand::rngs::SmallRng;
-    use rand::SeedableRng;
     use tokio::sync::{Mutex, RwLock};
 
     use crate::ipc::MessageBus;
@@ -159,7 +158,7 @@ mod tests {
         Arc<MessageBus>,
     ) {
         let service_registry = Arc::new(RwLock::new(ServiceRegistry::default()));
-        let rng = Arc::new(Mutex::new(SmallRng::from_entropy()));
+        let rng = Arc::new(Mutex::new(rand::make_rng()));
         let client = Client::builder(TokioExecutor::new()).build_http();
         let reconciliation_path = Arc::from("/reconciliation");
         let message_bus = MessageBus::new();
