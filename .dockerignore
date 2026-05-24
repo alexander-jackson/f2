@@ -2,6 +2,7 @@
 /servers
 /scripts
 Dockerfile
+Dockerfile.debug
 Justfile
 
 *.sh

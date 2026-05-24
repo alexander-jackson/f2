@@ -7,8 +7,7 @@ docker run -it \
 	-p 3000:3000 \
 	-v ./f2.yaml:/tmp/config.yaml \
 	-v ./crypto:/tmp/crypto \
-	-v ./forkup.yaml:/app/forkup.yaml \
-	-v /tmp:/tmp \
+	-v ./nginx.conf:/app/nginx.conf \
 	-v /var/run/docker.sock:/var/run/docker.sock \
 	--network internal \
 	--env-file .env \

@@ -1,4 +1,4 @@
-default: build clean run
+default: docker-build clean run
 
 check:
 	cargo check
@@ -11,8 +11,8 @@ test:
 
 validate: check lint test
 
-build:
-	docker build -t f2:debug .
+docker-build:
+	docker build --tag f2:debug --file Dockerfile.debug .
 
 clean:
 	./scripts/remove-containers.sh
