@@ -12,13 +12,13 @@ test:
 validate: check lint test
 
 docker-build:
-	docker build --tag f2:debug --file Dockerfile.debug .
+	docker build --tag f2:debug --file ./development/Dockerfile.debug .
 
 clean:
-	./scripts/remove-containers.sh
+	./development/scripts/remove-containers.sh
 
 run:
-	./scripts/run-in-docker.sh
+	./development/scripts/run-in-docker.sh
 
 reconcile:
 	curl -v -H "Host: localhost:3000" http://localhost:3000/reconcile

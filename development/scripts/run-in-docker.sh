@@ -5,10 +5,8 @@ docker network inspect internal >/dev/null 2>&1 || docker network create --drive
 
 docker run -it \
 	-p 3000:3000 \
-	-v ./f2.yaml:/tmp/config.yaml \
-	-v ./crypto:/tmp/crypto \
-	-v ./nginx.conf:/app/nginx.conf \
+	--volume ./development:/development \
 	-v /var/run/docker.sock:/var/run/docker.sock \
 	--network internal \
 	--env-file .env \
-	f2:debug -- --config /tmp/config.yaml
+	f2:debug -- --config /development/config.yaml
