@@ -6,37 +6,37 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arc-swap = "1.7.1"
-async-trait = "0.1.85"
-aws-config = "1.5.13"
-aws-sdk-s3 = "1.68.0"
+arc-swap = "1.9.1"
+async-trait = "0.1.89"
+aws-config = "1.8.17"
+aws-sdk-s3 = "1.133.0"
 base64 = "0.22.1"
-chrono = "0.4.39"
-color-eyre = "0.6.3"
-flume = "0.11.1"
-futures = "0.3.31"
-http = "1.2.0"
-http-body-util = "0.1.2"
-hyper = "1.5.2"
-hyper-util = { version = "0.1.10", features = ["client", "client-legacy", "http1", "http2", "server"] }
+chrono = "0.4.44"
+color-eyre = "0.6.5"
+flume = "0.12.0"
+futures = "0.3.32"
+http = "1.4.0"
+http-body-util = "0.1.3"
+hyper = "1.9.0"
+hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "server"] }
 hyperlocal = "0.9.1"
-indexmap = "2.7.0"
+indexmap = "2.14.0"
 itertools = "0.14.0"
 mutual-tls = { git = "https://github.com/alexander-jackson/mutual-tls.git", rev = "e5a36c5", version = "0.1.0" }
 pico-args = "0.5.0"
-rand = { version = "0.8.5", features = ["small_rng"] }
-rsa = "0.9.7"
+rand = "0.10.1"
+rsa = "0.10.0-rc.18"
 rustls = { version = "0.23.20", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2.2.0"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 serde_yaml = "0.9.33"
-tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread", "time", "fs", "signal"] }
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "time", "fs", "signal"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 urlencoding = "2.1.3"
-uuid = { version = "1.17.0", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 
 [dev-dependencies]
 hex = "0.4.3"
-tempfile = "3.20.0"
+tempfile = "3.27.0"
