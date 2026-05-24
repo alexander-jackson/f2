@@ -4,7 +4,8 @@ WORKDIR /app
 
 # Plan the dependencies
 FROM chef AS planner
-COPY . .
+COPY Cargo.toml Cargo.lock .
+COPY src src
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
@@ -14,7 +15,8 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build the binary
-COPY . .
+COPY Cargo.toml Cargo.lock .
+COPY src src
 RUN cargo build --release --bin f2
 
 # Copy over to the minimal image
