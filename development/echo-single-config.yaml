@@ -1,0 +1,14 @@
+alb:
+  addr: 0.0.0.0
+  ports:
+    http: 3000
+  reconciliation: /reconcile
+
+services:
+  echo:
+    image: echo
+    tag: single
+    replicas: 1
+    routes:
+      - host: localhost:3000
+        port: 8080
