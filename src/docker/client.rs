@@ -307,8 +307,17 @@ async fn deserialize_body<T>(response: Response<Incoming>) -> Result<T>
 where
     T: DeserializeOwned,
 {
+    let status = response.status();
+
+    tracing::debug!(%status, "deserializing response body");
+
     let bytes = read_body(response).await?;
     let decoded = std::str::from_utf8(&bytes)?;
+
+    if !status.is_success() {
+        eyre::bail!("request failed with status code {status} and body: {decoded}",);
+    }
+
     let json = serde_json::from_str(decoded)?;
 
     Ok(json)
