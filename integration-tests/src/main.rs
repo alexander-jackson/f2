@@ -1,31 +1,44 @@
-use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, eyre};
+use color_eyre::eyre::{Context, Result, eyre};
+
+mod docker;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
 
+    setup_dependencies().wrap_err("Failed to set up dependencies")?;
+
+    // check that volumes work correctly
+    check_volumes_work().wrap_err("Volumes did not work correctly")?;
+
+    // check that rolls work correctly
+    check_rolls_work().wrap_err("Rolls did not work correctly")?;
+
+    Ok(())
+}
+
+/// Builds the necessary Docker images and creates the network for the tests to run.
+fn setup_dependencies() -> Result<()> {
     // build the main image
-    docker_build("development/Dockerfile.debug", ".", "f2", "debug")?;
+    crate::docker::build("development/Dockerfile.debug", ".", "f2", "debug")?;
 
     // build the supporting images
-    docker_build(
+    crate::docker::build(
         "development/servers/echo/Dockerfile.single",
         "development/servers/echo",
         "echo",
         "single",
     )?;
 
-    docker_build(
+    crate::docker::build(
         "development/servers/echo/Dockerfile.double",
         "development/servers/echo",
         "echo",
         "double",
     )?;
 
-    docker_build(
+    crate::docker::build(
         "development/servers/volumes/Dockerfile",
         "development/servers/volumes",
         "volumes",
@@ -33,56 +46,59 @@ fn main() -> Result<()> {
     )?;
 
     // create the internal network
-    create_internal_network()?;
+    crate::docker::create_network_if_not_exists("internal")?;
 
+    Ok(())
+}
+
+fn check_volumes_work() -> Result<()> {
     // run the main container
     let volumes = vec![
         ("./development", "/development"),
         ("/var/run/docker.sock", "/var/run/docker.sock"),
     ];
 
-    docker_run("f2", "debug", &volumes, "/development/volumes-config.yaml")?;
+    crate::docker::run("f2", "debug", &volumes, "/development/volumes-config.yaml")?;
 
     // give the container a moment to start up
     std::thread::sleep(Duration::from_secs(1));
 
     // check we can get a response from it
-    let mut response = ureq::get("http://localhost:3000").call()?;
-    let response_text = response.body_mut().read_to_string()?;
-
     let expected = std::fs::read_to_string("development/volumes-configuration.json")?;
-
-    if response_text != expected {
-        return Err(eyre!(
-            "Received unexpected response from container: {response_text}"
-        ));
-    }
-
-    println!("✅ Successfully received correct response from container");
+    assert_response_equals("http://localhost:3000", &expected)?;
 
     // remove the running containers
-    docker_remove_running_containers()?;
+    crate::docker::remove_running_containers()?;
+
+    Ok(())
+}
+
+fn check_rolls_work() -> Result<()> {
+    // run the main container
+    let volumes = vec![
+        ("./development", "/development"),
+        ("/var/run/docker.sock", "/var/run/docker.sock"),
+    ];
 
     // start the next test
-    docker_run("f2", "debug", &volumes, "/development/echo-single-config.yaml")?;
+    crate::docker::run(
+        "f2",
+        "debug",
+        &volumes,
+        "/development/echo-single-config.yaml",
+    )?;
 
     // give the container a moment to start up
     std::thread::sleep(Duration::from_secs(1));
 
     // check we can get a response from it
-    let mut response = ureq::get("http://localhost:3000/foobar").call()?;
-    let response_text = response.body_mut().read_to_string()?;
-
-    if response_text != "Echo foobar" {
-        return Err(eyre!(
-            "Received unexpected response from container: {response_text}"
-        ));
-    }
-
-    println!("✅ Successfully received correct response from container");
+    assert_response_equals("http://localhost:3000/foobar", "Echo foobar")?;
 
     // roll to a new version
-    swap("./development/echo-single-config.yaml", "./development/echo-double-config.yaml")?;
+    swap(
+        "./development/echo-single-config.yaml",
+        "./development/echo-double-config.yaml",
+    )?;
 
     // force a reconciliation
     let mut response = ureq::put("http://localhost:3000/reconcile").send_empty()?;
@@ -98,168 +114,29 @@ fn main() -> Result<()> {
     std::thread::sleep(Duration::from_secs(1));
 
     // check we can get a response from it
-    let mut response = ureq::get("http://localhost:3000/foobar").call()?;
+    assert_response_equals("http://localhost:3000/foobar", "Echo echo foobar")?;
+
+    crate::docker::remove_running_containers()?;
+
+    swap(
+        "./development/echo-single-config.yaml",
+        "./development/echo-double-config.yaml",
+    )?;
+
+    Ok(())
+}
+
+fn assert_response_equals(uri: &str, content: &str) -> Result<()> {
+    let mut response = ureq::get(uri).call()?;
     let response_text = response.body_mut().read_to_string()?;
 
-    if response_text != "Echo echo foobar" {
+    if response_text != content {
         return Err(eyre!(
-            "Received unexpected response from container: {response_text}"
+            "Received unexpected response from container: {response_text}, expected: {content} when calling {uri}"
         ));
     }
 
-    docker_remove_running_containers()?;
-
-    swap("./development/echo-single-config.yaml", "./development/echo-double-config.yaml")?;
-
-    Ok(())
-}
-
-fn docker_build<D: AsRef<Path>, C: AsRef<Path>>(
-    dockerfile: D,
-    context: C,
-    image: &str,
-    version: &str,
-) -> Result<()> {
-    let tag = format!("{}:{}", image, version);
-
-    let output = Command::new("docker")
-        .arg("build")
-        .arg("-f")
-        .arg(dockerfile.as_ref().as_os_str())
-        .arg("-t")
-        .arg(&tag)
-        .arg(context.as_ref().as_os_str())
-        .output()?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "Docker build failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    println!("✅ Successfully built Docker image: {tag}");
-
-    Ok(())
-}
-
-fn create_internal_network() -> Result<()> {
-    // check whether the network already exists
-    let output = Command::new("docker")
-        .arg("network")
-        .arg("ls")
-        .arg("--filter")
-        .arg("name=^internal$")
-        .arg("--format")
-        .arg("{{.Name}}")
-        .output()?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "Failed to check for existing Docker networks: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let existing_networks = String::from_utf8_lossy(&output.stdout);
-
-    if existing_networks
-        .lines()
-        .any(|line| line.trim() == "internal")
-    {
-        println!("✅ Docker network 'internal' already exists");
-        return Ok(());
-    }
-
-    // create the network
-    let output = Command::new("docker")
-        .arg("network")
-        .arg("create")
-        .arg("internal")
-        .output()?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "Failed to create Docker network: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    println!("✅ Successfully created Docker network: internal");
-
-    Ok(())
-}
-
-fn docker_run(
-    image: &str,
-    version: &str,
-    volumes: &[(&'static str, &'static str)],
-    configuration_file: &'static str,
-) -> Result<String> {
-    let tag = format!("{}:{}", image, version);
-
-    let mut command = Command::new("docker");
-    command.arg("run").arg("-d").arg("-p").arg("3000:3000");
-
-    for (host_path, container_path) in volumes {
-        command
-            .arg("--volume")
-            .arg(format!("{}:{}", host_path, container_path));
-    }
-
-    let output = command
-        .arg("--network")
-        .arg("internal")
-        .arg("--env-file")
-        .arg(".env")
-        .arg(&tag)
-        .arg("--")
-        .arg("--config")
-        .arg(configuration_file)
-        .output()?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "Docker run failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    println!("✅ Successfully started Docker container {container_id} from image {tag}");
-
-    Ok(container_id)
-}
-
-fn docker_remove_running_containers() -> Result<()> {
-    let output = Command::new("docker").arg("ps").arg("-q").output()?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "Failed to list running Docker containers: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let container_ids = String::from_utf8_lossy(&output.stdout);
-
-    for container_id in container_ids.lines() {
-        let output = Command::new("docker")
-            .arg("rm")
-            .arg("-f")
-            .arg(container_id)
-            .output()?;
-
-        if !output.status.success() {
-            eprintln!(
-                "⚠️ Failed to remove Docker container {container_id}: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        } else {
-            println!("✅ Successfully removed Docker container {container_id}");
-        }
-    }
+    println!("✅ Successfully received correct response from {uri}");
 
     Ok(())
 }
