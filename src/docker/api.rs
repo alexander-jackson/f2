@@ -29,6 +29,7 @@ pub async fn create_and_start_container<C: DockerClient>(
         image,
         environment,
         volumes,
+        args,
     } = &container;
 
     // Ensure the image exists locally
@@ -52,6 +53,7 @@ pub async fn create_and_start_container<C: DockerClient>(
             &Some(environment),
             &volumes,
             Some((&network_id, &hostname)),
+            args,
         )
         .await?;
 

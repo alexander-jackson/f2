@@ -46,6 +46,7 @@ pub struct Container {
     pub image: String,
     pub environment: EncryptedEnvironment,
     pub volumes: HashMap<String, VolumeDefinition>,
+    pub args: Vec<String>,
 }
 
 impl fmt::Debug for Container {
@@ -53,6 +54,7 @@ impl fmt::Debug for Container {
         f.debug_struct("Container")
             .field("image", &self.image)
             .field("volumes", &self.volumes)
+            .field("args", &self.args)
             .finish()
     }
 }
@@ -65,6 +67,7 @@ impl From<&Service> for Container {
                 variables: service.environment.clone(),
             },
             volumes: service.volumes.clone(),
+            args: service.args.clone(),
         }
     }
 }

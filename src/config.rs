@@ -13,6 +13,7 @@ use serde::Deserialize;
 use crate::crypto::parse_private_key;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Diff {
     Alteration {
         name: String,
@@ -239,6 +240,8 @@ pub struct Service {
     pub volumes: HashMap<String, VolumeDefinition>,
     #[serde(default)]
     pub shutdown_mode: ShutdownMode,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 impl Hash for Service {
