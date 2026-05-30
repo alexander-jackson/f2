@@ -47,6 +47,8 @@ fn setup() -> Result<()> {
         .with(env_filter_layer)
         .init();
 
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     Ok(())
 }
 
