@@ -252,6 +252,7 @@ pub mod tests {
             _environment: &Option<Environment>,
             _docker_volumes: &HashMap<String, String>,
             _network: Option<(&NetworkId, &str)>,
+            _args: &[String],
         ) -> Result<ContainerId> {
             let container_id = ContainerId::random();
 
@@ -379,6 +380,7 @@ pub mod tests {
                 &None,
                 &HashMap::new(),
                 Some((&NetworkId("mesh".to_owned()), "foobar.local")),
+                &[],
             )
             .await?;
 
@@ -433,6 +435,7 @@ pub mod tests {
                 &None,
                 &HashMap::new(),
                 Some((&NetworkId("mesh".to_owned()), "foobar.local")),
+                &[],
             )
             .await?;
 
@@ -495,6 +498,7 @@ pub mod tests {
                 &None,
                 &HashMap::new(),
                 Some((&NetworkId("mesh".to_owned()), "foobar.local")),
+                &[],
             )
             .await?;
 

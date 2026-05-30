@@ -239,6 +239,8 @@ pub struct Service {
     pub volumes: HashMap<String, VolumeDefinition>,
     #[serde(default)]
     pub shutdown_mode: ShutdownMode,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 impl Hash for Service {

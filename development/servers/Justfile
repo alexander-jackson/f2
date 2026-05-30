@@ -2,3 +2,4 @@ build:
 	docker build --tag echo:single --file echo/Dockerfile.single echo/
 	docker build --tag echo:double --file echo/Dockerfile.double echo/
 	docker build --tag volumes:latest --file volumes/Dockerfile volumes/
+	docker build --tag args:latest --file args/Dockerfile args/

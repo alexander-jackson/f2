@@ -1,0 +1,16 @@
+alb:
+  addr: 0.0.0.0
+  ports:
+    http: 3000
+  reconciliation: /reconcile
+
+services:
+  args:
+    image: args
+    tag: latest
+    replicas: 1
+    routes:
+      - host: localhost:3000
+        port: 8080
+    args:
+      - --mode=overridden

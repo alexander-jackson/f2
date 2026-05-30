@@ -12,6 +12,10 @@ fn main() -> Result<()> {
     // check that volumes work correctly
     check_volumes_work().wrap_err("Volumes did not work correctly")?;
 
+    // check that args are passed through and override the image CMD correctly
+    // (must run before check_rolls_work, whose reconciler prunes all unused images)
+    check_args_work().wrap_err("Args did not work correctly")?;
+
     // check that rolls work correctly
     check_rolls_work().wrap_err("Rolls did not work correctly")?;
 
@@ -42,6 +46,13 @@ fn setup_dependencies() -> Result<()> {
         "development/servers/volumes/Dockerfile",
         "development/servers/volumes",
         "volumes",
+        "latest",
+    )?;
+
+    crate::docker::build(
+        "development/servers/args/Dockerfile",
+        "development/servers/args",
+        "args",
         "latest",
     )?;
 
@@ -122,6 +133,27 @@ fn check_rolls_work() -> Result<()> {
         "./development/echo-single-config.yaml",
         "./development/echo-double-config.yaml",
     )?;
+
+    Ok(())
+}
+
+fn check_args_work() -> Result<()> {
+    let volumes = vec![
+        ("./development", "/development"),
+        ("/var/run/docker.sock", "/var/run/docker.sock"),
+    ];
+
+    // without args: Dockerfile CMD is preserved, server responds with "default"
+    crate::docker::run("f2", "debug", &volumes, "/development/args-default-config.yaml")?;
+    std::thread::sleep(Duration::from_secs(1));
+    assert_response_equals("http://localhost:3000", "default")?;
+    crate::docker::remove_running_containers()?;
+
+    // with args: f2 overrides CMD, server responds with "overridden"
+    crate::docker::run("f2", "debug", &volumes, "/development/args-override-config.yaml")?;
+    std::thread::sleep(Duration::from_secs(1));
+    assert_response_equals("http://localhost:3000", "overridden")?;
+    crate::docker::remove_running_containers()?;
 
     Ok(())
 }
