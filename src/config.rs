@@ -13,6 +13,7 @@ use serde::Deserialize;
 use crate::crypto::parse_private_key;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Diff {
     Alteration {
         name: String,
